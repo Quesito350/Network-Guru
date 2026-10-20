@@ -1,0 +1,96 @@
+# Network Guru - developer / test install, run straight from this git checkout (Docker Desktop
+# on a test PC, or any Docker host). Site servers do NOT use this file: they use deploy/install.sh
+# (deploy/compose.yaml), with the admin-approved updates and rollback.
+#
+#   first time:   copy .env.example .env      (then set NG_INVENTORY in it)
+#                 docker compose up -d --build
+#   update:       git pull
+#                 docker compose up -d --build
+#   admin password and logs:   docker compose logs app
+#   stop:         docker compose stop
+#
+#   NEVER run "docker compose down" with the -v / --volumes option: the named volumes hold the
+#   history (vmdata) and the event log + settings (appdata).
+#
+# ${NG_...} values come from .env next to this file (git-ignored, no secrets in it). Optional
+# secrets go in dev-secrets/secrets.env (git-ignored) - see deploy/WINDOWS_TEST.md.
+# The lock-down below is the same as on the site servers (a test checks they match).
+name: networkguru-dev
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.dev
+    image: networkguru-app:dev
+    pull_policy: build                     # always built from this checkout, never pulled
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    sysctls:
+      net.ipv4.ping_group_range: "0 2147483647"     # ping without root (0.6.0 drivers)
+    ports:
+      - "0.0.0.0:${NG_PORT:-8080}:8080"
+    environment:
+      NETWORKGURU_MODE: ${NG_MODE:-sim}
+      NETWORKGURU_DEPLOY: compose
+      NETWORKGURU_PUBLIC_URL: ${NG_PUBLIC_URL:-}
+      NETWORKGURU_VM_URL: http://victoriametrics:8428
+      NETWORKGURU_SECRETS: /run/networkguru/secrets.env
+      NETWORKGURU_DATA: /data
+      NG_SUBNET: ${NG_SUBNET:-172.29.251.0/24}
+      NO_PROXY: victoriametrics,localhost,127.0.0.1
+      no_proxy: victoriametrics,localhost,127.0.0.1
+    volumes:
+      - appdata:/data
+      - ${NG_INVENTORY:-./examples/inventory.example.yaml}:/site/inventory.yaml:ro
+      - ./dev-secrets:/run/networkguru:ro          # optional secrets.env; a folder, so edits are seen
+    depends_on:
+      - victoriametrics
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=4).status == 200 else 1)"]
+      interval: 30s
+      timeout: 6s
+      start_period: 60s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks: [ng]
+
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.154.0
+    pull_policy: missing
+    restart: unless-stopped
+    command:
+      - -storageDataPath=/storage
+      - -retentionPeriod=31d
+      - -httpListenAddr=:8428
+      - -search.latencyOffset=5s
+      - -loggerLevel=WARN
+    # no published port: only the app reaches it, and it never clashes with an install.sh install
+    volumes:
+      - vmdata:/storage
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 60s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks: [ng]
+
+networks:
+  ng:
+    ipam:
+      config:
+        - subnet: ${NG_SUBNET:-172.29.251.0/24}      # one above the site servers' 172.29.250.0/24
+
+volumes:
+  appdata: {}
+  vmdata: {}

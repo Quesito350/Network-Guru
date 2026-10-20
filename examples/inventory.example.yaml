@@ -1,0 +1,207 @@
+# Network Guru - example inventory (Mendon test site, DEMO)
+#
+# The layout is like a real site (trailers, towers, vehicles), but every address and the
+# location in this file are MADE UP for the demo (10.200.0.0/16). A site's real inventory is
+# built from its devices.xlsx with build-inventory, and is never kept in git.
+#
+# No passwords here, ever. A device that needs a login names it with *_ref, e.g.
+#   user_ref: MT_RO_USER     password_ref: MT_RO_PASS
+# and the values live only in secrets.env on the dashboard server.
+#
+# `sim:` blocks only steer the simulator; real drivers ignore them.
+
+site:
+  id: mendon
+  name: Mendon Test Site (demo)
+  timezone: America/Denver
+  lat: 40.76
+  lon: -111.89
+
+mobius:
+  influx_url: http://10.200.1.10:8086      # Mobius InfluxDB (probe it before 0.4 drivers)
+  version: auto
+  database: null                            # filled in after `probe-influx`
+  asset_tag: null
+
+control_room:
+  - id: mobius-server
+    name: Mobius Server
+    kind: server
+    components:
+      - {id: mobius-svc, type: mobius_server, name: Mobius Server, host: 10.200.1.11, checks: ["tcp:18080"]}
+      - {id: mobius-influx, type: influxdb, name: Mobius InfluxDB, host: 10.200.1.10, checks: ["tcp:8086"]}
+      - {id: mobius-ntrip, type: mobius_ntrip, name: NTRIP client (RTK corrections)}
+  - id: ops-desk-1
+    name: Ops desk 1
+    kind: client
+    components:
+      - {id: ops-desk-1-pc, type: mobius_client, name: Ops desk 1 PC, host: 10.200.1.12, mobius_machine_id: OPS-DESK-1}
+    sim: {schedule: "Mon-Fri 06:00-18:00", user: jsmith}
+  - id: ops-desk-2
+    name: Ops desk 2
+    kind: client
+    components:
+      - {id: ops-desk-2-pc, type: mobius_client, name: Ops desk 2 PC, host: 10.200.1.13, mobius_machine_id: OPS-DESK-2}
+    sim: {schedule: "Mon-Fri 07:00-16:00", user: kdavis, disk_free: 12}
+  - id: video-wall
+    name: Control room video wall
+    kind: client
+    expected_online: always
+    components:
+      - {id: video-wall-pc, type: mobius_client, name: Video wall PC, host: 10.200.1.14, mobius_machine_id: VIDEO-WALL}
+    sim: {schedule: always, user: wall}
+  - id: field-laptop
+    name: Field laptop
+    kind: client
+    components:
+      - {id: field-laptop-pc, type: mobius_client, name: Field laptop, host: 10.200.1.15, mobius_machine_id: FIELD-LT-1}
+    sim: {schedule: "Tue-Thu 08:00-15:00", user: cjeppesen}
+
+infrastructure:
+  - id: core
+    name: Network core (ASI building)
+    kind: core
+    devices:
+      - {id: core-switch, type: unifi, name: Core switch, model: USW-Pro-24-PoE, host: 10.200.2.10}
+      - {id: core-starlink, type: starlink, name: Starlink (site internet), target: "10.200.2.11:9200"}
+      - {id: core-celona-edge, type: celona_edge, name: Celona Edge, host: 10.200.2.12}
+      - {id: gnss-base, type: gnss_base, name: GNSS base (Trimble), host: 10.200.2.13, checks: ["tcp:2101"]}
+  - id: bldg-north
+    name: ASI Building North
+    kind: building
+    devices:
+      - {id: bldg-north-bc, type: rajant, name: Rajant FE1, model: FE1-2255X, host: 10.200.2.14}
+      - {id: bldg-north-celona, type: celona_ap, name: Celona AP, host: 10.200.2.15}
+      - {id: bldg-north-60g, type: tachyon, name: Tachyon to Trailer 46, model: TNA-303L, host: 10.200.2.16, sim: {rssi: -49}}
+  - id: bldg-south
+    name: ASI Building South
+    kind: building
+    devices:
+      - {id: bldg-south-bc, type: rajant, name: Rajant FE1, model: FE1-2255X, host: 10.200.2.17}
+      - {id: bldg-south-am, type: airmax, name: airMAX to Trailer 48, model: airFiber 5XHD, host: 10.200.2.18, sim: {signal: -57}}
+  - id: dirt-track
+    name: Dirt Track tower
+    kind: tower
+    devices:
+      - {id: dirt-track-bc, type: rajant, name: Rajant FE1, model: FE1-2255X, host: 10.200.2.19}
+      - {id: dirt-track-celona, type: celona_ap, name: Celona AP, host: 10.200.2.20}
+  - id: south-field
+    name: South field repeater
+    kind: repeater
+    devices:
+      - {id: south-field-bc, type: rajant, name: Rajant LX5, model: LX5-2295C, host: 10.200.2.21, sim: {peers: 3}}
+      - {id: south-field-gx, type: victron_cerbo, name: Cerbo GX, host: 10.200.2.22}
+    sim: {battery_wh: 4800, pv_peak_w: 400}
+  - id: trailer-46
+    name: Trailer 46
+    kind: trailer
+    devices:
+      - {id: t46-bc, type: rajant, name: Rajant FE1, model: FE1-2255X, host: 10.200.3.10}
+      - {id: t46-gx, type: victron_cerbo, name: Cerbo GX, host: 10.200.3.11}
+      - {id: t46-60g, type: tachyon, name: Tachyon to Building North, model: TNA-303L, host: 10.200.3.12, sim: {rssi: -51}}
+    sim: {battery_wh: 9600, pv_peak_w: 720}
+  - id: trailer-47
+    name: Trailer 47
+    kind: trailer
+    devices:
+      - {id: t47-bc, type: rajant, name: Rajant FE1, model: FE1-2255X, host: 10.200.3.13}
+      - {id: t47-gx, type: victron_cerbo, name: Cerbo GX, host: 10.200.3.14}
+      - {id: t47-starlink, type: starlink, name: Starlink, target: "10.200.3.14:9200", sim: {obstruction: 1.4}}
+    sim: {battery_wh: 9600, pv_peak_w: 720}
+  - id: trailer-48
+    name: Trailer 48
+    kind: trailer
+    devices:
+      - {id: t48-bc, type: rajant, name: Rajant FE1, model: FE1-2255X, host: 10.200.3.15}
+      - {id: t48-gx, type: victron_cerbo, name: Cerbo GX, host: 10.200.3.16}
+      - {id: t48-am, type: airmax, name: airMAX to Building South, model: airFiber 5XHD, host: 10.200.3.17, sim: {signal: -61}}
+    sim: {battery_wh: 9600, battery_health: 0.22, pv_peak_w: 320, extra_load_w: 30}   # worn battery, dirty panel
+  - id: trailer-49
+    name: Trailer 49
+    kind: trailer
+    devices:
+      - {id: t49-bc, type: rajant, name: Rajant FE1, model: FE1-2255X, host: 10.200.3.18}
+      - {id: t49-gx, type: victron_cerbo, name: Cerbo GX, host: 10.200.3.19}
+    sim: {battery_wh: 9600, pv_peak_w: 720}
+
+vehicles:
+  - id: autocar-2845
+    name: Autocar 2845
+    model: Autocar ACTT yard truck
+    mobius_asset: Autocar 2845
+    access: rajant
+    components:
+      - {id: ac2845-radio, type: rajant, name: Rajant ME4, model: ME4-2450R, host: 10.200.4.10}
+      - {id: ac2845-router, type: mikrotik, name: MikroTik hAP lite, model: RB941-2nD, host: 10.200.4.11}
+      - {id: ac2845-vcu, type: vcu, name: VCU}
+      - {id: ac2845-gnss, type: gnss, name: GNSS}
+      - {id: ac2845-vai, type: vai, name: VAI}
+  - id: autocar-2846
+    name: Autocar 2846
+    model: Autocar ACTT yard truck
+    mobius_asset: Autocar 2846
+    access: rajant
+    components:
+      - {id: ac2846-radio, type: rajant, name: Rajant ME4, model: ME4-2450R, host: 10.200.4.12}
+      - {id: ac2846-router, type: westermo, name: Westermo Viper, model: Viper-212A, host: 10.200.4.13}
+      - {id: ac2846-vcu, type: vcu, name: VCU}
+      - {id: ac2846-gnss, type: gnss, name: GNSS}
+      - {id: ac2846-vai, type: vai, name: VAI}
+    sim: {flaky: 0.7, always_on: true}        # yard truck on a 24/7 operation, poor coverage on its route
+  - id: wheel-loader
+    name: Wheel Loader
+    model: Wheel loader
+    mobius_asset: WheelLoader
+    access: rajant
+    components:
+      - {id: wl-radio, type: rajant, name: Rajant FE1, model: FE1-2450, host: 10.200.4.14}
+      - {id: wl-router, type: mikrotik, name: MikroTik RB2011, model: RB2011iL-IN, host: 10.200.4.15}
+      - {id: wl-vcu, type: vcu, name: VCU}
+      - {id: wl-gnss, type: gnss, name: GNSS}
+      - {id: wl-vai, type: vai, name: VAI}
+    sim: {vcu_hot: true}
+  - id: tundra
+    name: Tundra
+    model: Toyota Tundra (test truck)
+    mobius_asset: Tundra
+    access: rajant
+    components:
+      - {id: tundra-radio, type: rajant, name: Rajant ME4, model: ME4-2450R, host: 10.200.4.16}
+      - {id: tundra-router, type: mikrotik, name: MikroTik hAP lite, model: RB941-2nD, host: 10.200.4.17, sim: {wireguard: true}}
+      - {id: tundra-vcu, type: vcu, name: VCU}
+      - {id: tundra-gnss, type: gnss, name: GNSS}
+  - id: jd-8r
+    name: JD 8R
+    model: John Deere 8R tractor
+    mobius_asset: 8R
+    access: rajant
+    components:
+      - {id: jd8r-radio, type: rajant, name: Rajant ME4, model: ME4-2450R, host: 10.200.4.18}
+      - {id: jd8r-router, type: mikrotik, name: MikroTik hAP lite, model: RB941-2nD, host: 10.200.4.19}
+      - {id: jd8r-vcu, type: vcu, name: VCU}
+      - {id: jd8r-gnss, type: gnss, name: GNSS}
+    sim: {park_chance: 0.4}
+  - id: jd-9rx
+    name: JD 9RX
+    model: John Deere 9RX tractor
+    mobius_asset: 9RX
+    access: rajant
+    components:
+      - {id: jd9rx-radio, type: rajant, name: Rajant ME4, model: ME4-2450R, host: 10.200.4.20}
+      - {id: jd9rx-router, type: mikrotik, name: MikroTik hAP lite, model: RB941-2nD, host: 10.200.4.21}
+      - {id: jd9rx-vcu, type: vcu, name: VCU}
+      - {id: jd9rx-gnss, type: gnss, name: GNSS}
+    sim: {park_chance: 0.5, flaky: 0.3}
+  - id: yard-tractor-t1
+    name: Yard tractor T-1 (Celona)
+    model: Terberg yard tractor
+    mobius_asset: T-1
+    access: celona
+    expected_online: always                   # 24/7 yard: not responding = Critical, not just Offline
+    components:
+      - {id: t1-modem, type: cell_modem, name: Celona modem, host: 10.200.4.22}
+      - {id: t1-router, type: mikrotik, name: MikroTik RB4011, model: RB4011iGS+, host: 10.200.4.23}
+      - {id: t1-vcu, type: vcu, name: VCU}
+      - {id: t1-gnss, type: gnss, name: GNSS}
+      - {id: t1-vai, type: vai, name: VAI}
+    sim: {always_on: true, flaky: 0.2}

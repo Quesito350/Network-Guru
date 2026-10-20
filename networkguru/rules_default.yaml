@@ -1,0 +1,97 @@
+# Network Guru - default health thresholds
+#
+# These are STARTING VALUES to review with ops. Override them per site in rules.yaml
+# (same layout) or per component in inventory.yaml (`rules: {ping_rtt_ms: {warn: 100}}`).
+#
+# Per metric:
+#   warn / crit            value at or above = Warning / Critical  (high is bad)
+#   low_warn / low_crit    value at or below = Warning / Critical  (low is bad)
+#   enum: {code: status}   state metrics; "*" = any other code
+#   zero: status           value 0 means offline | critical | warning
+#   for: 2m                must hold this long before it counts (s / m / h)
+
+offline_after_polls: 3        # failed polls in a row before a device is Offline
+stale_after_intervals: 4      # no new data for this many poll intervals = Unknown (stale)
+hysteresis: 0.05              # a breached threshold clears 5 % back on the good side
+
+metrics:
+  # reachability - Mobius Radio Network Monitoring bands (degraded >= 250 ms, bad >= 500 ms)
+  ping_rtt_ms:            {warn: 250, crit: 500}
+  ping_loss_pct:          {warn: 5, crit: 20, for: 30s}
+  mobius_radio_rtt_ms:    {warn: 250, crit: 500}
+  tcp_ms:                 {warn: 500, crit: 2000}
+
+  # ASI VCU - Mobius CommunicationTelemetryItems bands (Degraded 250 ms, VeryPoor 1000 ms)
+  vcu_communicating:      {zero: offline}
+  vcu_comms_latency_ms:   {warn: 250, crit: 1000}
+  vcu_comms_drop_pct:     {warn: 5, crit: 20}
+  vcu_cpu_temp_c:         {warn: 80, crit: 90}
+  vcu_temp_c:             {warn: 70, crit: 80}
+  vcu_cpu_pct:            {warn: 85, crit: 95, for: 2m}
+  vcu_supply_v:           {low_warn: 22.0, low_crit: 20.0}
+
+  # GNSS - RTK fixed is OK, float is Warning, anything else Critical
+  gnss_mode:              {enum: {4: ok, 5: warning, "*": critical}}
+  gnss_corr_age_s:        {warn: 5, crit: 30}
+  gnss_sats:              {low_warn: 8, low_crit: 5}
+  gnss_hdop:              {warn: 2.0, crit: 4.0}
+  gnss_rms_m:             {warn: 0.10, crit: 0.30}
+
+  # ASI VAI
+  vai_connected:          {zero: critical}
+  vai_heartbeat_age_s:    {warn: 5, crit: 15}
+
+  # Rajant (trailer radios are fed by a 56 V PoE injector - check per model)
+  rajant_temp_c:          {warn: 75, crit: 85}
+  rajant_input_v:         {low_warn: 44, low_crit: 40}
+
+  # vehicle routers
+  router_cpu_pct:         {warn: 85, crit: 95, for: 2m}
+  router_mem_used_pct:    {warn: 90}
+  router_temp_c:          {warn: 70, crit: 80}
+  router_supply_v:        {low_warn: 11.5, low_crit: 10.5}
+  wg_handshake_age_s:     {warn: 180, crit: 600}
+
+  # cellular modem on a vehicle
+  cell_rsrp_dbm:          {low_warn: -105, low_crit: -115}
+  cell_sinr_db:           {low_warn: 3, low_crit: 0}
+
+  # Victron Cerbo GX - trailer battery and charger
+  power_soc_pct:          {low_warn: 40, low_crit: 20}
+  power_mppt_state:       {enum: {2: critical, "*": ok}}
+
+  # Starlink
+  starlink_state:         {enum: {1: ok, "*": critical}}
+  starlink_pop_latency_ms: {warn: 100, crit: 300, for: 1m}
+  starlink_pop_drop_pct:  {warn: 2, crit: 10, for: 1m}
+  starlink_obstructed_pct: {warn: 2, crit: 10}
+  starlink_alerts:        {warn: 1}
+
+  # Tachyon 60 GHz (a link with an install RSSI warns 6 dB / goes critical 12 dB below it).
+  # Link down = Warning: at Mendon management also runs over the Rajant mesh, so the trailer
+  # stays reachable - redundancy is lost, not the trailer. Make it critical for sites without a mesh.
+  tachyon_link_up:        {zero: warning}
+  tachyon_rssi_dbm:       {low_warn: -60, low_crit: -68}
+  tachyon_snr_db:         {low_warn: 15, low_crit: 8}
+  tachyon_tx_mcs:         {low_warn: 6, low_crit: 3}
+  tachyon_radio_temp_c:   {warn: 75, crit: 85}
+
+  # Ubiquiti
+  airmax_signal_dbm:      {low_warn: -70, low_crit: -80}
+  airmax_quality_pct:     {low_warn: 80, low_crit: 60}
+  airmax_capacity_pct:    {low_warn: 70, low_crit: 50}
+  unifi_cpu_pct:          {warn: 85, crit: 95, for: 2m}
+  unifi_mem_pct:          {warn: 90}
+
+  # Celona
+  celona_aps_up:          {zero: critical}
+
+  # Mobius server, InfluxDB, NTRIP, clients and Windows hosts
+  mobius_up:              {zero: critical}
+  mobius_clock_skew_s:    {warn: 2, crit: 10}
+  influx_write_age_s:     {warn: 60, crit: 300}
+  ntrip_connected:        {zero: critical}
+  client_connected:       {zero: offline}
+  host_cpu_pct:           {warn: 85, crit: 95, for: 5m}
+  host_mem_used_pct:      {warn: 90, crit: 97}
+  host_disk_free_pct:     {low_warn: 15, low_crit: 5}

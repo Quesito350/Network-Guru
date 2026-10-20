@@ -1,0 +1,87 @@
+# Network Guru on a site server. install.sh copies this to /opt/networkguru/compose.yaml.
+#
+#   NEVER run "docker compose down" with the -v / --volumes option: the named volumes hold the
+#   30 days of history (vmdata) and the event log + settings (appdata). To stop: docker compose stop
+#
+# ${NG_...} values come from /opt/networkguru/.env (written by install.sh and ng_updater.py,
+# no secrets in it). Secrets are in /opt/networkguru/secrets/secrets.env, read by the app itself.
+# Always run compose as:
+#   docker compose --project-directory /opt/networkguru -f /opt/networkguru/compose.yaml ...
+name: networkguru
+
+services:
+  app:
+    image: networkguru-app:${NG_VERSION:?NG_VERSION is set by install.sh}
+    pull_policy: never                     # built on this server, never pulled
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    sysctls:
+      net.ipv4.ping_group_range: "0 2147483647"     # ping without root (0.6.0 drivers)
+    ports:
+      - "0.0.0.0:${NG_PORT:-8080}:8080"
+    environment:
+      NETWORKGURU_MODE: ${NG_MODE:-sim}
+      NETWORKGURU_DEPLOY: docker
+      NETWORKGURU_PUBLIC_URL: ${NG_PUBLIC_URL:-}
+      NETWORKGURU_VM_URL: http://victoriametrics:8428
+      NETWORKGURU_SECRETS: /run/networkguru/secrets.env
+      NETWORKGURU_RULES: /site/rules.yaml
+      NETWORKGURU_DATA: /data
+      NO_PROXY: victoriametrics,localhost,127.0.0.1
+      no_proxy: victoriametrics,localhost,127.0.0.1
+    volumes:
+      - appdata:/data
+      - /var/lib/networkguru/updates:/data/updates   # the only folder shared with the host updater
+      - ./site:/site:ro
+      - ./secrets:/run/networkguru:ro                # a folder, so a rewritten secrets.env is seen
+    depends_on:
+      - victoriametrics
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=4).status == 200 else 1)"]
+      interval: 30s
+      timeout: 6s
+      start_period: 60s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks: [ng]
+
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.154.0
+    pull_policy: missing
+    restart: unless-stopped
+    command:
+      - -storageDataPath=/storage
+      - -retentionPeriod=31d
+      - -httpListenAddr=:8428
+      - -search.latencyOffset=5s
+      - -loggerLevel=WARN
+    ports:
+      - "127.0.0.1:8428:8428"              # this server only (Grafana later); never the site network
+    volumes:
+      - vmdata:/storage
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 60s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks: [ng]
+
+networks:
+  ng:
+    ipam:
+      config:
+        - subnet: ${NG_SUBNET:-172.29.250.0/24}
+
+volumes:
+  appdata: {}
+  vmdata: {}

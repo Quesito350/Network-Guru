@@ -1,0 +1,4 @@
+1 d81dc27857e13e2d4868936eb6864d95d089d24e03e6de6d223010b3ca969bbf
+# Host version of the server-side files (compose.yaml, Dockerfile, ng_updater.py, the systemd units).
+# Bump the number whenever one of them changes: an update with a higher number needs install.sh.
+# The hash is checked by tests/test_deploy.py.

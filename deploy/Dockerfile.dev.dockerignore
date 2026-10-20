@@ -1,0 +1,7 @@
+# Build context for deploy/Dockerfile.dev (the repository root): only the code and the package
+# lock go in - never .git, .env, dev-secrets/, site files or anything else in the checkout.
+*
+!networkguru
+!deploy/requirements.lock
+**/__pycache__
+**/*.pyc

@@ -1,0 +1,6 @@
+# Files that run on the Linux server must keep LF line endings, whatever git does on Windows.
+*.sh text eol=lf
+deploy/** text eol=lf
+deploy/wheels/** binary
+*.service text eol=lf
+*.path text eol=lf

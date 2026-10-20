@@ -1,0 +1,31 @@
+# Network Guru app image for the developer / test install (compose.yaml at the top of the
+# repository: docker compose up -d --build). Site servers use deploy/Dockerfile instead.
+# The same image as on the servers, with two differences:
+#   - the Python packages come from PyPI instead of deploy/wheels (which is only in the release
+#     zip) - but exactly the same wheels: the same --platform list as tools/fetch_wheels.py,
+#     checked against the same sha256 hashes in deploy/requirements.lock. Needs internet to build.
+#   - no VERSION.txt (only the update-zip checks read it; this install updates with git pull).
+# x86-64 only, like the servers. Keep the rest in step with deploy/Dockerfile (a test checks it).
+FROM python:3.13-slim-trixie
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONUTF8=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_CACHE_DIR=1 PIP_ROOT_USER_ACTION=ignore \
+    NETWORKGURU_DATA=/data NETWORKGURU_DEPLOY=compose
+
+COPY deploy/requirements.lock /tmp/requirements.lock
+RUN pip download --only-binary=:all: --no-deps --require-hashes \
+        --python-version 3.13 --implementation cp --abi cp313 \
+        --platform manylinux_2_28_x86_64 --platform manylinux_2_17_x86_64 --platform manylinux2014_x86_64 \
+        -r /tmp/requirements.lock -d /tmp/wheels \
+ && pip install --no-index --find-links /tmp/wheels --require-hashes -r /tmp/requirements.lock \
+ && rm -rf /tmp/wheels /tmp/requirements.lock \
+ && groupadd --gid 10001 networkguru \
+ && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin networkguru \
+ && mkdir -p /data/updates /app \
+ && chown -R 10001:10001 /data
+
+COPY networkguru /app/networkguru
+WORKDIR /app
+USER 10001:10001
+EXPOSE 8080
+CMD ["python", "-m", "networkguru", "serve", "--inventory", "/site/inventory.yaml"]

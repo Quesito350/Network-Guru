@@ -1,0 +1,11 @@
+[Unit]
+Description=Network Guru: install an approved update (build, switch, health check, roll back)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I /opt/networkguru/bin/ng_updater.py run
+TimeoutStartSec=30min
+Environment=HOME=/root
+Nice=5

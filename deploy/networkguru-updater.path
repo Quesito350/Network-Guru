@@ -1,0 +1,13 @@
+[Unit]
+Description=Network Guru: watch for an update an admin approved
+
+[Path]
+# The app (container) writes update-request.json into the shared folder after an admin approved
+# an update and the download passed its checks. A .processing file left by a reboot is turned
+# into an "interrupted" result.
+PathExists=/var/lib/networkguru/updates/update-request.json
+PathExists=/var/lib/networkguru/updates/update-request.processing
+Unit=networkguru-updater.service
+
+[Install]
+WantedBy=multi-user.target

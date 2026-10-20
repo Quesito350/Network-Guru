@@ -1,0 +1,25 @@
+# Network Guru - never commit site data, secrets, binaries or build output
+__pycache__/
+.pytest_cache/
+*.pyc
+*.zip
+*.sha256
+tools/vm/
+sites/
+data/
+*.db
+*.db-wal
+*.db-shm
+secrets.env
+*.env
+!*.env.example
+*.mesh
+*.kmz
+*.kml
+*.xlsx
+*.xls
+*.csv
+!tests/fixtures/*.csv
+deploy/wheels/
+images/
+dev-secrets/
