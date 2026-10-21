@@ -139,7 +139,7 @@ def test_build_override_makes_the_image_from_the_checkout():
 def test_image_workflow_pushes_only_a_smoke_tested_image():
     wf = yaml.safe_load((ROOT / ".github" / "workflows" / "image.yml").read_text(encoding="utf-8"))
     on = wf.get("on", wf.get(True))                                     # YAML 1.1 reads "on" as true
-    assert on["push"] == {"tags": ["v*"]} and "workflow_dispatch" in on
+    assert list(on) == ["workflow_dispatch"]           # release.py starts it on the tag (a tag push did not)
     assert wf["permissions"] == {"contents": "read", "packages": "write"}
     assert wf["env"]["IMAGE"] == "ghcr.io/quesito350/network-guru"
     steps = wf["jobs"]["image"]["steps"]

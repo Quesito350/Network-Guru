@@ -30,12 +30,16 @@ What it does
 import argparse
 import datetime as _dt
 import hashlib
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.error
+import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -45,6 +49,9 @@ ARCHIVE_DIR = RELEASES_DIR / "archive"
 NAME_PREFIX = "NetworkGuru_v"
 TOOL_TITLE = "Network Guru"
 GITHUB_REPO = "Quesito350/Network-Guru"
+IMAGE = "ghcr.io/quesito350/network-guru"           # the test-install image (.github/workflows/image.yml)
+IMAGE_WORKFLOW = "image.yml"
+IMAGE_WAIT_S = 20 * 60
 DEFAULT_KEEP = 5
 
 INCLUDE = ["networkguru", "examples", "tests", "deploy", "tools/fetch_vm.py", "tools/fetch_wheels.py",
@@ -255,6 +262,89 @@ def publish(version: str) -> None:
     if rc != 0:
         sys.exit("ERROR: GitHub Release failed - see above.")
     print(f"  Published https://github.com/{GITHUB_REPO}/releases/tag/{tag}")
+    print("Building the test-install image on GitHub ...")
+    if not build_image(gh, version):
+        sys.exit(f"ERROR: the release zip is published, but the test-install image {IMAGE}:{version} is NOT - see above.")
+
+
+def _gh_quiet(cmd: list[str]) -> tuple[int, str]:
+    """A gh call that is polled, so it is not echoed every time."""
+    r = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True)
+    return r.returncode, ((r.stdout or "") + (r.stderr or "")).strip()
+
+
+def build_image(gh: str, version: str, sleep=time.sleep, clock=time.time, poll_s: float = 15.0,
+                wait_s: float = IMAGE_WAIT_S) -> bool:
+    """Start .github/workflows/image.yml on the release tag and follow it to the end. In 0.5.4 a tag push
+    did not start it, so release.py starts it itself. True when the image was smoke-tested and pushed."""
+    tag = f"v{version}"
+    again = f"gh workflow run {IMAGE_WORKFLOW} --repo {GITHUB_REPO} --ref {tag}"
+    started = clock()
+    rc, out = _run([gh, "workflow", "run", IMAGE_WORKFLOW, "--repo", GITHUB_REPO, "--ref", tag])
+    if rc != 0:
+        print(f"  The image build did not start. Start it by hand:  {again}")
+        return False
+    m = re.search(r"/actions/runs/(\d+)", out)
+    run_id = m.group(1) if m else _find_run(gh, tag, started, sleep, clock)
+    if not run_id:
+        print(f"  The image build was started, but its run was not found: https://github.com/{GITHUB_REPO}/actions")
+        return False
+    url = f"https://github.com/{GITHUB_REPO}/actions/runs/{run_id}"
+    print(f"  Run: {url}")
+    last_note = clock()
+    while True:
+        rc, out = _gh_quiet([gh, "run", "view", run_id, "--repo", GITHUB_REPO, "--json", "status,conclusion"])
+        state = json.loads(out) if rc == 0 and out.startswith("{") else {}
+        if state.get("status") == "completed":
+            if state.get("conclusion") == "success":
+                print(f"  Image published: {IMAGE}:{version} (also :latest)")
+                print("  " + image_public_note(version))
+                return True
+            print(f"  The image build ended '{state.get('conclusion')}' - the image is NOT published. Log: {url}")
+            print(f"  After a fix, run it again:  {again}")
+            return False
+        if clock() - started > wait_s:
+            print(f"  The image build did not finish within {wait_s / 60:.0f} min - the image is NOT confirmed. Log: {url}")
+            return False
+        if clock() - last_note >= 60:
+            print(f"    still building ({(clock() - started) / 60:.0f} min) ...", flush=True)
+            last_note = clock()
+        sleep(poll_s)
+
+
+def _find_run(gh: str, tag: str, started: float, sleep, clock) -> str | None:
+    """The run id of the workflow_dispatch run for `tag` started since `started` (older gh prints no URL)."""
+    for _ in range(12):
+        rc, out = _gh_quiet([gh, "run", "list", "--repo", GITHUB_REPO, "--workflow", IMAGE_WORKFLOW, "--event",
+                             "workflow_dispatch", "--limit", "10", "--json", "databaseId,headBranch,createdAt"])
+        if rc == 0 and out.startswith("["):
+            for r in json.loads(out):
+                at = _dt.datetime.fromisoformat(r["createdAt"].replace("Z", "+00:00")).timestamp()
+                if r.get("headBranch") == tag and at >= started - 60:
+                    return str(r["databaseId"])
+        sleep(5)
+    return None
+
+
+def image_public_note(version: str) -> str:
+    """Can anyone pull it? An anonymous pull token from ghcr.io, then the version's manifest."""
+    name = IMAGE.split("/", 1)[1]
+    try:
+        with urllib.request.urlopen(f"https://ghcr.io/token?scope=repository:{name}:pull", timeout=15) as r:
+            token = json.loads(r.read().decode("utf-8")).get("token", "")
+        req = urllib.request.Request(f"https://ghcr.io/v2/{name}/manifests/{version}", method="HEAD", headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json"})
+        with urllib.request.urlopen(req, timeout=15):
+            return "Anyone can pull it (no login needed)."
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403, 404):
+            owner = GITHUB_REPO.split("/")[0]
+            return (f"WARNING: it can't be pulled without a login ({e.code}). Make the package public: "
+                    f"https://github.com/users/{owner}/packages/container/{name.split('/')[1]}/settings")
+        return f"Could not check whether it is public ({e.code})."
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        return f"Could not check whether it is public ({e})."
 
 
 def main() -> None:

@@ -1,6 +1,8 @@
 # Network Guru - builds the app image and publishes it to GitHub's container registry:
 #   ghcr.io/quesito350/network-guru:<version>, :<major.minor> and :latest
-# Runs when build.bat (release.py) pushes a version tag; it can also be run by hand on a tag.
+# build.bat (release.py) starts it on the new version tag after publishing a release, and waits for
+# the result: in 0.5.4 a tag push did not start it, so it is started explicitly. By hand:
+#   gh workflow run image.yml --repo Quesito350/Network-Guru --ref v<version>
 # The test install (compose.yaml at the top of the repository) pulls this image. Site servers do
 # NOT use it: they build their own image with deploy/install.sh, offline.
 #
@@ -9,8 +11,6 @@
 name: Container image
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions:

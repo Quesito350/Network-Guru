@@ -190,6 +190,74 @@ def test_no_real_site_addresses():
     assert len(files) > 50 and not found, found
 
 
+def _fake_gh(monkeypatch, rel, start=(0, "https://github.com/Quesito350/Network-Guru/actions/runs/123"),
+             states=(), runs="[]"):
+    """release.py's gh calls, answered without GitHub: the start, then `run view` / `run list` polls."""
+    import json
+    calls, left = [], list(states)
+
+    def fake_run(cmd, capture=True):
+        calls.append(cmd)
+        return start
+
+    def fake_quiet(cmd):
+        calls.append(cmd)
+        if cmd[1:3] == ["run", "list"]:
+            return 0, runs
+        return 0, json.dumps(left.pop(0) if len(left) > 1 else left[0])
+    monkeypatch.setattr(rel, "_run", fake_run)
+    monkeypatch.setattr(rel, "_gh_quiet", fake_quiet)
+    monkeypatch.setattr(rel, "image_public_note", lambda v: "Anyone can pull it (no login needed).")
+    return calls
+
+
+class _Clock:
+    def __init__(self, t=1_800_000_000.0):
+        self.t = t
+
+    def __call__(self):
+        return self.t
+
+    def sleep(self, s):
+        self.t += s
+
+
+def test_release_starts_and_follows_the_image_build(monkeypatch, capsys):
+    rel = _release("release7")
+    calls = _fake_gh(monkeypatch, rel, states=[{"status": "queued"}, {"status": "in_progress"},
+                                               {"status": "completed", "conclusion": "success"}])
+    c = _Clock()
+    assert rel.build_image("gh", "9.9.9", sleep=c.sleep, clock=c) is True
+    assert calls[0] == ["gh", "workflow", "run", "image.yml", "--repo", "Quesito350/Network-Guru", "--ref", "v9.9.9"]
+    assert len(calls) == 4 and all(x[:4] == ["gh", "run", "view", "123"] for x in calls[1:])
+    out = capsys.readouterr().out
+    assert "Image published: ghcr.io/quesito350/network-guru:9.9.9 (also :latest)" in out and "Anyone can pull it" in out
+
+
+def test_release_reports_a_failed_or_missing_image_build(monkeypatch, capsys):
+    import datetime as dt
+    rel = _release("release8")
+    hand = "gh workflow run image.yml --repo Quesito350/Network-Guru --ref v9.9.9"
+    c = _Clock()
+    _fake_gh(monkeypatch, rel, states=[{"status": "completed", "conclusion": "failure"}])
+    assert rel.build_image("gh", "9.9.9", sleep=c.sleep, clock=c) is False
+    out = capsys.readouterr().out
+    assert "NOT published" in out and "/actions/runs/123" in out and hand in out
+    _fake_gh(monkeypatch, rel, start=(1, "HTTP 403"))                           # could not start it
+    assert rel.build_image("gh", "9.9.9", sleep=c.sleep, clock=c) is False and hand in capsys.readouterr().out
+    _fake_gh(monkeypatch, rel, start=(0, "Created workflow_dispatch event"))    # no URL printed, no run found
+    assert rel.build_image("gh", "9.9.9", sleep=c.sleep, clock=c) is False
+    assert "its run was not found" in capsys.readouterr().out
+    at = dt.datetime.fromtimestamp(c.t, dt.timezone.utc).isoformat().replace("+00:00", "Z")
+    calls = _fake_gh(monkeypatch, rel, start=(0, "Created workflow_dispatch event"),       # ... found by listing
+                     runs=f'[{{"databaseId": 77, "headBranch": "v9.9.9", "createdAt": "{at}"}}]',
+                     states=[{"status": "completed", "conclusion": "success"}])
+    assert rel.build_image("gh", "9.9.9", sleep=c.sleep, clock=c) is True and calls[-1][:4] == ["gh", "run", "view", "77"]
+    _fake_gh(monkeypatch, rel, states=[{"status": "in_progress"}])               # never finishes
+    assert rel.build_image("gh", "9.9.9", sleep=c.sleep, clock=c, wait_s=120) is False
+    assert "did not finish within 2 min" in capsys.readouterr().out
+
+
 def test_wheels_match_the_lock():
     import importlib.util
     spec = importlib.util.spec_from_file_location("fetch_wheels_t", ROOT / "tools" / "fetch_wheels.py")

@@ -7,6 +7,11 @@ networkguru.__version__ - release.py refuses to package otherwise).
 """
 
 CHANGES = [
+    ("0.5.5", "2026-10-21", [
+        "Every release now also updates the test-install image on GitHub by itself: build.bat starts the image "
+        "build, waits for it and says when ghcr.io/quesito350/network-guru has the new version (and that anyone "
+        "can pull it). A test PC gets it with 'docker compose pull' and 'docker compose up -d'.",
+    ]),
     ("0.5.4", "2026-10-21", [
         "Each release is now also a Docker image on GitHub (ghcr.io/quesito350/network-guru), built and "
         "tested there. A test PC needs only Docker Desktop and two small files: 'docker compose up -d' to start, "

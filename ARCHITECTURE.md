@@ -1,6 +1,6 @@
 # Network Guru: architecture
 
-Current version: **0.5.4** (2026-10-21). Source: github.com/Quesito350/Network-Guru (public since 0.5.3). Bump `networkguru/__init__.py` `__version__` and add a `networkguru/changelog.py` entry with every change. Update this file and REQUIREMENTS.md every version.
+Current version: **0.5.5** (2026-10-21). Source: github.com/Quesito350/Network-Guru (public since 0.5.3). Bump `networkguru/__init__.py` `__version__` and add a `networkguru/changelog.py` entry with every change. Update this file and REQUIREMENTS.md every version.
 
 ## What it is
 
@@ -198,7 +198,7 @@ Real site files never go in git or a release zip; `.gitignore` and `release.py` 
 
 For test PCs (Docker Desktop): `compose.yaml` + `.env` + a `site` folder, `docker compose up -d`, and `docker compose pull` + `up -d` to update. No Git or build is needed. Site servers keep `install.sh`.
 
-- **The image** `ghcr.io/quesito350/network-guru:<version>` / `:<major.minor>` / `:latest` (public, linked to the repository) is made by `.github/workflows/image.yml` on every `v*` tag (release.py pushes one):
+- **The image** `ghcr.io/quesito350/network-guru:<version>` / `:<major.minor>` / `:latest` (public, linked to the repository) is made by `.github/workflows/image.yml`. **release.py starts it** on the new tag right after publishing the release (`gh workflow run image.yml --ref v<version>`), follows the run and ends with an ERROR if the image did not get published; it then checks anonymously that anyone can pull it. (In 0.5.4 the tag push did not start a tag-triggered workflow, and this repository shows no push events, so the workflow has only `workflow_dispatch`.)
   - It builds `deploy/Dockerfile.dev` for linux/amd64.
   - **Smoke test:** the image runs locked down like compose (user 10001, read-only, `cap_drop ALL`, no-new-privileges, the ping sysctl, `NETWORKGURU_DEPLOY=compose`, no site folder, so the demo) and must answer `/api/health` within 3 minutes. Only then is it pushed with the workflow's own `GITHUB_TOKEN` (permissions `contents: read`, `packages: write`); no secret is stored.
   - Every action is pinned to a commit. The one-time password is filtered out of the public log.
@@ -481,6 +481,7 @@ Ranges are capped at 32 days.
 
 ## Version history
 
+- **0.5.5** (2026-10-21): release.py starts the image workflow itself and waits for it (`build_image`), so each release also publishes the test-install image; the workflow is `workflow_dispatch` only.
 - **0.5.4** (2026-10-21): the test-install image on GitHub's registry (`ghcr.io/quesito350/network-guru`), built and smoke-tested by a workflow on each tag. The root `compose.yaml` pulls it (a `site` folder replaces `NG_INVENTORY`, demo without one); `compose.build.yaml` builds from a checkout. `WINDOWS_TEST.md` Way A uses the image, with help for old installs and "git is not recognized".
 - **0.5.3** (2026-10-20): public repository (fresh history; 0.4.0-0.5.2 in the private archive). Site details out of the code: `SITE_DEFAULTS` and the two subnet rules became the Sites sheet of devices.xlsx. Made-up addresses (10.200/16), serials, MACs and a neutral location (Salt Lake City) in the example, tests and docs, plus a test that allows only made-up private ranges. The update check and download work without a GitHub token.
 - **0.5.2** (2026-10-20): developer / test install from git: top-level `compose.yaml` + `deploy/Dockerfile.dev` (the release's packages from PyPI, hash-checked), `NETWORKGURU_DEPLOY=compose` (one-time admin password in the log, Approve/Upload refused with the git commands). `WINDOWS_TEST.md` Way A. `secrets.env` with a byte-order mark is read.

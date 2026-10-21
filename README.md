@@ -47,7 +47,7 @@ docker compose up -d
 
 - **Update:** `docker compose pull`, then `docker compose up -d`.
 - **Admin password:** a one-time password is printed by `docker compose logs app`. A fixed one and the other secrets can go in `dev-secrets\secrets.env`.
-- **The image** is built by `.github/workflows/image.yml` from `deploy/Dockerfile.dev` on each version tag, and only pushed after a smoke test. It is the server image, with the release's Python packages, checked against `deploy/requirements.lock`.
+- **The image** is built on GitHub by `.github/workflows/image.yml` from `deploy/Dockerfile.dev` with each release: `build.bat` starts it and waits for the result. It is only pushed after a smoke test. It is the server image, with the release's Python packages, checked against `deploy/requirements.lock`.
 - It has no in-app updates or rollback. The Admin page shows the update commands instead.
 - **From a git checkout** (unreleased changes): `docker compose -f compose.yaml -f compose.build.yaml up -d --build`.
 
