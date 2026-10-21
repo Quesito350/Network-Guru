@@ -2,7 +2,7 @@
 
 The Docker install, the systemd updater, real image builds, rollback, and real Teams and e-mail delivery cannot run on the development PC, which has no Docker and no WSL distribution. The unit tests cover their logic with fakes. This checklist covers them on real hardware.
 
-**Trying it on a Windows PC with Docker Desktop instead?** Follow `WINDOWS_TEST.md`. It has two ways: Way A runs straight from git with `docker compose`, and Way B installs the same release from an Ubuntu WSL window. Each way has a table for the steps that differ.
+**Trying it on a Windows PC with Docker Desktop instead?** Follow `WINDOWS_TEST.md`. It has two ways: Way A pulls the published image with `docker compose` (no Git needed), and Way B installs the same release from an Ubuntu WSL window. Each way has a table for the steps that differ.
 
 **Test machine:** an Ubuntu Server 24.04 or 26.04 VM on Proxmox: 2 vCPU, 4 GB RAM, 30 GB disk. Run it on 26.04 at least once, because a site server runs 26.04. Do a first pass **with internet**, then repeat the starred (★) steps **with the network unplugged** (Proxmox: disconnect the NIC, or block the gateway).
 

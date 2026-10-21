@@ -1,29 +1,29 @@
-# Network Guru - developer / test install, run straight from this git checkout (Docker Desktop
-# on a test PC, or any Docker host). Site servers do NOT use this file: they use deploy/install.sh
-# (deploy/compose.yaml), with the admin-approved updates and rollback.
+# Network Guru - test install (Docker Desktop on a test PC, or any Docker host). It pulls the
+# published image ghcr.io/quesito350/network-guru (built by .github/workflows/image.yml), so no
+# Git and no build are needed: this file, .env and a site folder. Site servers do NOT use this
+# file: they use deploy/install.sh (deploy/compose.yaml), with the admin-approved updates.
 #
-#   first time:   copy .env.example .env      (then set NG_INVENTORY in it)
-#                 docker compose up -d --build
-#   update:       git pull
-#                 docker compose up -d --build
+#   first time:   put compose.yaml and .env (from .env.example) in a folder, and the site's
+#                 inventory.yaml in a "site" folder next to them, then:
+#                 docker compose up -d
+#   update:       docker compose pull
+#                 docker compose up -d
 #   admin password and logs:   docker compose logs app
 #   stop:         docker compose stop
+#   from a git checkout instead: docker compose -f compose.yaml -f compose.build.yaml up -d --build
 #
 #   NEVER run "docker compose down" with the -v / --volumes option: the named volumes hold the
 #   history (vmdata) and the event log + settings (appdata).
 #
-# ${NG_...} values come from .env next to this file (git-ignored, no secrets in it). Optional
-# secrets go in dev-secrets/secrets.env (git-ignored) - see deploy/WINDOWS_TEST.md.
-# The lock-down below is the same as on the site servers (a test checks they match).
+# ${NG_...} values come from .env next to this file (no secrets in it). Optional secrets go in
+# dev-secrets/secrets.env - see deploy/WINDOWS_TEST.md. Without site/inventory.yaml the demo site
+# is shown. The lock-down below is the same as on the site servers (a test checks they match).
 name: networkguru-dev
 
 services:
   app:
-    build:
-      context: .
-      dockerfile: deploy/Dockerfile.dev
-    image: networkguru-app:dev
-    pull_policy: build                     # always built from this checkout, never pulled
+    image: ghcr.io/quesito350/network-guru:${NG_TAG:-latest}
+    pull_policy: missing                   # "docker compose pull" fetches a newer one
     restart: unless-stopped
     user: "10001:10001"
     read_only: true
@@ -42,13 +42,14 @@ services:
       NETWORKGURU_PUBLIC_URL: ${NG_PUBLIC_URL:-}
       NETWORKGURU_VM_URL: http://victoriametrics:8428
       NETWORKGURU_SECRETS: /run/networkguru/secrets.env
+      NETWORKGURU_RULES: /site/rules.yaml
       NETWORKGURU_DATA: /data
       NG_SUBNET: ${NG_SUBNET:-172.29.251.0/24}
       NO_PROXY: victoriametrics,localhost,127.0.0.1
       no_proxy: victoriametrics,localhost,127.0.0.1
     volumes:
       - appdata:/data
-      - ${NG_INVENTORY:-./examples/inventory.example.yaml}:/site/inventory.yaml:ro
+      - ./site:/site:ro                            # inventory.yaml (+ optional rules.yaml)
       - ./dev-secrets:/run/networkguru:ro          # optional secrets.env; a folder, so edits are seen
     depends_on:
       - victoriametrics

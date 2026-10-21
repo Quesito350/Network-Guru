@@ -156,6 +156,23 @@ def test_developer_install_prints_a_one_time_password(tmp_path, monkeypatch, cap
     assert seen[-1].dev_admin_password is None
 
 
+def test_test_install_shows_the_demo_without_an_inventory(tmp_path, monkeypatch, capsys):
+    """compose.yaml with an empty site folder shows the demo site; a site server never does."""
+    import networkguru.__main__ as cli
+    from networkguru.inventory import InventoryError
+    seen = []
+    monkeypatch.setattr(cli, "_serve", lambda s, open_browser: seen.append(s) or 0)
+    monkeypatch.setenv("NETWORKGURU_DEPLOY", "compose")
+    monkeypatch.setenv("NETWORKGURU_SECRETS", str(tmp_path / "missing.env"))
+    missing = str(tmp_path / "site" / "inventory.yaml")
+    assert cli.main(["serve", "--inventory", missing, "--data-dir", str(tmp_path)]) == 0
+    assert seen[-1].inventory == cli.EXAMPLE and "showing the demo site" in capsys.readouterr().out
+    monkeypatch.setenv("NETWORKGURU_DEPLOY", "docker")
+    with pytest.raises(InventoryError, match="cannot read"):
+        cli.main(["serve", "--inventory", missing, "--data-dir", str(tmp_path)])
+    assert len(seen) == 1
+
+
 def test_developer_install_session_and_server_rules(tmp_path):
     app = create_app(Settings(inventory=EXAMPLE, mode="sim", history_days=1, vm_url=None, deploy="compose",
                               data_dir=tmp_path, dev_admin_password=PW))
@@ -167,7 +184,7 @@ def test_developer_install_session_and_server_rules(tmp_path):
         assert r.status_code == 401                                       # like a server: admins only
         assert c.post("/api/admin/login", json={"password": PW, "name": "Casey"}, headers=HDR).status_code == 200
         r = c.post("/api/admin/update/approve", headers=HDR)
-        assert r.status_code == 409 and "git pull" in r.json()["detail"]
+        assert r.status_code == 409 and "docker compose pull" in r.json()["detail"]
         st = c.get("/api/admin/status").json()["updates"]
         assert st["deploy"] == "compose" and st["can_install"] is False
     assert app.state.rt.docker

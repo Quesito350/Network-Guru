@@ -1,10 +1,12 @@
-# Network Guru app image for the developer / test install (compose.yaml at the top of the
-# repository: docker compose up -d --build). Site servers use deploy/Dockerfile instead.
-# The same image as on the servers, with two differences:
+# Network Guru app image for the test install: built on GitHub by .github/workflows/image.yml and
+# published as ghcr.io/quesito350/network-guru (compose.yaml pulls it), or built from a git checkout
+# with compose.build.yaml. Site servers use deploy/Dockerfile instead.
+# The same image as on the servers, with three differences:
 #   - the Python packages come from PyPI instead of deploy/wheels (which is only in the release
 #     zip) - but exactly the same wheels: the same --platform list as tools/fetch_wheels.py,
 #     checked against the same sha256 hashes in deploy/requirements.lock. Needs internet to build.
-#   - no VERSION.txt (only the update-zip checks read it; this install updates with git pull).
+#   - no VERSION.txt (only the update-zip checks read it; this install updates with docker compose pull).
+#   - the example inventory, shown as a demo when the site folder has no inventory.yaml.
 # x86-64 only, like the servers. Keep the rest in step with deploy/Dockerfile (a test checks it).
 FROM python:3.13-slim-trixie
 
@@ -25,6 +27,7 @@ RUN pip download --only-binary=:all: --no-deps --require-hashes \
  && chown -R 10001:10001 /data
 
 COPY networkguru /app/networkguru
+COPY examples/inventory.example.yaml /app/examples/inventory.example.yaml
 WORKDIR /app
 USER 10001:10001
 EXPOSE 8080

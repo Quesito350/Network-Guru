@@ -54,7 +54,7 @@ class Runtime:
 
     @property
     def docker(self) -> bool:
-        """In a container: a site server (install.sh) or the developer install from git (compose)."""
+        """In a container: a site server (install.sh) or the test install (compose.yaml)."""
         return self.settings.deploy in ("docker", "compose")
 
     @property

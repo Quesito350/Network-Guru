@@ -33,23 +33,25 @@ python run.py check-inventory ..\sites\mendon\inventory.yaml
 
 **History between runs:** run `python tools\fetch_vm.py` once. It downloads VictoriaMetrics v1.154.0 into `tools\vm\` with a checksum check. `dev` then starts it by itself and keeps 30 days of history in `%LOCALAPPDATA%\NetworkGuru\`. A restart only fills the gap since the last run. Without it, history lives in memory and is rebuilt on each start.
 
-## Developer / test install from git (Docker Compose)
+## Test install from the published image (Docker Compose)
 
-On a test PC with Docker Desktop (or any Docker host), run it straight from a git checkout. No release zip, no Ubuntu and no `install.sh` are needed:
+Every release is also published as a Docker image on GitHub: `ghcr.io/quesito350/network-guru`. A test PC with Docker Desktop (or any Docker host) needs no Git, no build, no Ubuntu and no `install.sh`: two files and a `site` folder.
 
 ```
-git clone https://github.com/Quesito350/Network-Guru.git
-cd Network-Guru
-copy .env.example .env              (then set NG_INVENTORY in it)
-docker compose up -d --build
+mkdir C:\NetworkGuru; cd C:\NetworkGuru
+curl.exe -L -o compose.yaml https://raw.githubusercontent.com/Quesito350/Network-Guru/main/compose.yaml
+curl.exe -L -o .env https://raw.githubusercontent.com/Quesito350/Network-Guru/main/.env.example
+mkdir site                          (put the site's inventory.yaml in it; without one you get the demo)
+docker compose up -d
 ```
 
-- **Update:** `git pull`, then `docker compose up -d --build` again.
-- **Admin password:** a one-time password is printed by `docker compose logs app`. A fixed one and the other secrets can go in `dev-secrets\secrets.env` (git-ignored).
-- It uses `compose.yaml` at the top of the repository and `deploy/Dockerfile.dev`. The image is the server image, and the Python packages are the release's, checked against `deploy/requirements.lock`.
-- It has no in-app updates or rollback. The Admin page shows the git commands instead.
+- **Update:** `docker compose pull`, then `docker compose up -d`.
+- **Admin password:** a one-time password is printed by `docker compose logs app`. A fixed one and the other secrets can go in `dev-secrets\secrets.env`.
+- **The image** is built by `.github/workflows/image.yml` from `deploy/Dockerfile.dev` on each version tag, and only pushed after a smoke test. It is the server image, with the release's Python packages, checked against `deploy/requirements.lock`.
+- It has no in-app updates or rollback. The Admin page shows the update commands instead.
+- **From a git checkout** (unreleased changes): `docker compose -f compose.yaml -f compose.build.yaml up -d --build`.
 
-The full steps are in `deploy/WINDOWS_TEST.md` → *Way A*.
+The full steps, with help for old installs and for "git is not recognized", are in `deploy/WINDOWS_TEST.md` → *Way A*.
 
 ## Install on a site server (Ubuntu, Docker)
 

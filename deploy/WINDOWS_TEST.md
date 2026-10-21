@@ -2,68 +2,70 @@
 
 The real deployment is a Linux server (see `HARDWARE_TEST.md`). This page is for trying Network Guru on a Windows PC that is on the site network and has **Docker Desktop**. There are two ways:
 
-| | **Way A: from git with `docker compose`** | **Way B: the release with `install.sh`** |
+| | **Way A: the image from GitHub** | **Way B: the release with `install.sh`** |
 |---|---|---|
 | Good for | Trying each new version quickly | Testing the real site-server install |
-| Runs from | PowerShell, in a git checkout | An Ubuntu window (WSL) |
-| Update | `git pull`, then `docker compose up -d --build` | Admin page: Approve (or upload the zip) |
-| Needs | Git, internet while building | The release zip, Ubuntu in WSL |
+| Runs from | PowerShell, in one folder with two files | An Ubuntu window (WSL) |
+| Update | `docker compose pull`, then `docker compose up -d` | Admin page: Approve (or upload the zip) |
+| Needs | Docker Desktop and internet (no Git, no build) | The release zip, Ubuntu in WSL |
 | Not included | In-app updates, the updater, rollback | (everything) |
 
-Run only one of them at a time on port 8080 (or give Way A another port, see A4).
+Run only one of them at a time on port 8080 (or give Way A another port, see A3).
 
-## Way A: from git with `docker compose` (simplest)
+## Way A: the image from GitHub (simplest)
 
-### A1. Docker Desktop and Git
+Each release builds the image on GitHub and publishes it as `ghcr.io/quesito350/network-guru`. The PC only downloads it.
 
-- **Docker Desktop → General:** *Use the WSL 2 based engine* and *Start Docker Desktop when you sign in* are on. No Ubuntu is needed for Way A.
-- **Git:** in PowerShell run `winget install --id Git.Git -e`, then open a new PowerShell window.
+### A1. Docker Desktop
 
-### A2. Get the code
+**Docker Desktop → General:** *Use the WSL 2 based engine* and *Start Docker Desktop when you sign in* are on. No Ubuntu and no Git are needed for Way A.
+
+### A2. The folder and its two files
+
+In PowerShell:
 
 ```powershell
-cd C:\
-git clone https://github.com/Quesito350/Network-Guru.git
-cd Network-Guru
+mkdir C:\NetworkGuru -Force
+cd C:\NetworkGuru
+curl.exe -L -o compose.yaml https://raw.githubusercontent.com/Quesito350/Network-Guru/main/compose.yaml
+curl.exe -L -o .env https://raw.githubusercontent.com/Quesito350/Network-Guru/main/.env.example
+mkdir site -Force
 ```
 
-The repository is public, so no GitHub sign-in is needed.
+Then copy the site's `inventory.yaml` (from `Documents\Network Guru\sites\<site>\` on the build PC) into `C:\NetworkGuru\site\`. If it's already in `C:\NetworkGuru`, move it: `move inventory.yaml site\`.
 
-### A3. The site's inventory
-
-Copy the site's `inventory.yaml` (from `Documents\Network Guru\sites\<site>\` on the build PC) to `C:\NetworkGuru\inventory.yaml`. It is not in git, on purpose.
+- It holds the site's real addresses: keep it off anything public. It is never in git or in the image.
+- Without it, the dashboard shows the built-in demo site.
 
 Find the PC's address with `ipconfig` (its IPv4 address on the site network).
 
-### A4. Settings
+### A3. Settings
 
 ```powershell
-copy .env.example .env
 notepad .env
 ```
 
-Set at least these two (use forward slashes in the path):
+Set the address other PCs open (used for the link in the morning report):
 
 ```
-NG_INVENTORY=C:/NetworkGuru/inventory.yaml
 NG_PUBLIC_URL=http://<PC-IP>:8080/
 ```
 
-- `.env` is git-ignored and holds no secrets.
-- Without `NG_INVENTORY`, the dashboard shows the built-in demo site.
-- If Way B is installed and running on this PC, either stop it (`docker compose -p networkguru stop`) or set `NG_PORT=8081`.
+- `.env` holds no secrets.
+- `NG_TAG` empty means the newest version. Set a version (for example `0.5.4`) to stay on it.
+- If Way B is installed and running on this PC, either stop it (see *Old installs on this PC* below) or set `NG_PORT=8081`.
 
-### A5. Start it
+### A4. Start it
 
 ```powershell
-docker compose up -d --build
+docker compose up -d
 ```
 
-- The first build downloads the Python base image and the 22 Python packages (a few minutes). The packages are exactly the ones in the release, checked against the hashes in `deploy/requirements.lock`.
+- The first start downloads the Network Guru image and VictoriaMetrics (about a minute on a normal connection).
 - After about a minute, `docker compose ps` shows `networkguru-dev-app-1` as **healthy**, plus `networkguru-dev-victoriametrics-1`.
 - The containers have the same lock-down as on a site server (user 10001, read-only, no capabilities). VictoriaMetrics has no port on the PC at all.
 
-### A6. Open it
+### A5. Open it
 
 - **On the test PC:** http://localhost:8080
 - **From another PC:** `http://<PC-IP>:8080`
@@ -74,7 +76,7 @@ docker compose up -d --build
 New-NetFirewallRule -DisplayName "Network Guru 8080" -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow
 ```
 
-### A7. Admin sign-in
+### A6. Admin sign-in
 
 ```powershell
 docker compose logs app
@@ -82,11 +84,11 @@ docker compose logs app
 
 The log shows "Admin page: one-time password for this start". It is never stored, and there is a new one each time the app starts (after an update or a restart).
 
-**A fixed password, the GitHub token or the Teams / e-mail secrets (optional):**
+**A fixed password, or the Teams / e-mail secrets (optional):**
 
 ```powershell
-mkdir dev-secrets
-copy deploy\secrets.env.example dev-secrets\secrets.env
+mkdir dev-secrets -Force
+curl.exe -L -o dev-secrets\secrets.env https://raw.githubusercontent.com/Quesito350/Network-Guru/main/deploy/secrets.env.example
 docker compose run --rm app python -m networkguru hash-password
 notepad dev-secrets\secrets.env
 ```
@@ -94,44 +96,82 @@ notepad dev-secrets\secrets.env
 - `hash-password` asks for the password twice (hidden) and prints its hash. Paste the hash after `NETWORKGURU_ADMIN_PASSWORD_HASH=`. Never put the password itself in the file.
 - Fill in only what you want to test, for example the Teams webhook URL for the morning report. A GitHub token is not needed.
 - The app reads the file again within seconds; no restart is needed.
-- `dev-secrets\` is git-ignored, but it is a plain-text file on this PC. Use it only on a test PC, and delete it when the testing is done.
+- `dev-secrets\` is a plain-text file on this PC. Use it only on a test PC, and delete it when the testing is done.
 
-### A8. Update
+### A7. Update
 
 ```powershell
-cd C:\Network-Guru
-git pull
-docker compose up -d --build
+cd C:\NetworkGuru
+docker compose pull
+docker compose up -d
 ```
 
-- Only what changed is rebuilt. The app restarts on the new version.
+- `pull` downloads the newest image; `up -d` restarts the app on it.
 - The history and the events stay: they are in the Docker volumes.
 - The Admin page shows these commands instead of Approve and Upload. A newer release still shows its banner as a reminder.
+- Once in a while `compose.yaml` itself changes (the release notes say so). Then download it again with the `curl.exe` line from A2 before `pull`.
 
-### A9. Stop, start, change settings
+### A8. Stop, start, change settings
 
 | To | Run |
 |---|---|
 | Stop | `docker compose stop` |
 | Start again | `docker compose start` |
 | See the logs | `docker compose logs -f app` |
-| After editing the inventory | `docker compose restart app` |
+| After changing `site\inventory.yaml` | `docker compose restart app` |
 | After editing `.env` | `docker compose up -d` |
 
 **Never run `docker compose down -v`:** the volumes hold the history and the events. Plain `docker compose down` keeps them.
 
-### A10. Testing: `HARDWARE_TEST.md` with Way A
+### A9. Testing: `HARDWARE_TEST.md` with Way A
 
 | Checklist section | With Way A |
 |---|---|
-| 1. Install | Not used. A2-A7 replace it |
+| 1. Install | Not used. A2-A6 replace it |
 | 2. What runs | The names are `networkguru-dev-app-1` and `networkguru-dev-victoriametrics-1`. VictoriaMetrics has no published port. The network is `networkguru-dev_ng` (`172.29.251.0/24`) |
 | 3. Persistence | Restart Windows instead of `sudo reboot`. For the port and mode steps, change `NG_PORT` / `NG_MODE` in `.env` and run `docker compose up -d` |
-| 4. Admin page | Same, with the password from A7 |
+| 4. Admin page | Same, with the password from A6 |
 | 5. Updates, 6. Offline site | Need Way B: Way A refuses Approve and Upload on purpose |
 | 7. Morning report | Same, after putting the secrets in `dev-secrets\secrets.env` |
 
-**Done when:** `docker compose ps` shows the app healthy, the dashboard opens from a second PC at `http://<PC-IP>:8080` with the site's layout, the Admin sign-in works, and `git pull` + `docker compose up -d --build` brings in the next version.
+**Done when:** `docker compose ps` shows the app healthy, the dashboard opens from a second PC at `http://<PC-IP>:8080` with the site's layout, the Admin sign-in works, and `docker compose pull` + `docker compose up -d` brings in the next version.
+
+### Old installs on this PC
+
+You don't need to delete anything for Way A: it uses its own names (`networkguru-dev-…`), its own data volumes and its own network.
+
+- **An old git clone** (`C:\Network-Guru`, from 0.5.2 or 0.5.3) is no longer needed for Way A. You can delete it: `Remove-Item -Recurse -Force C:\Network-Guru`. Developers who still want a clone: see the next section.
+- **An old `install.sh` install (Way B)** also wants port 8080. Check with `docker ps --format "{{.Names}}"`: `networkguru-app-1` (no "dev" in the name) is the old one. Stop it with `docker compose -p networkguru stop`, or give Way A `NG_PORT=8081`.
+- **Optional clean-up** if you won't test Way B again: `docker compose -p networkguru down -v`. This deletes the old test install's own (simulated) data, not Way A's.
+- **The old release zip** in `C:\NetworkGuru` is harmless: delete it or leave it.
+
+### Developers: building the image from a git checkout
+
+Only needed to try changes that are not released yet.
+
+```powershell
+cd C:\
+git clone https://github.com/Quesito350/Network-Guru.git
+cd Network-Guru
+copy .env.example .env
+docker compose -f compose.yaml -f compose.build.yaml up -d --build
+```
+
+The site's inventory goes in `site\` inside the checkout (git-ignored). To update: `git pull`, then the same `docker compose … --build` command.
+
+**"git is not recognized"** means Git isn't installed, or PowerShell can't find it:
+
+1. Close every PowerShell window and open a new one: a window opened before Git was installed can't see it. Try `git --version`.
+2. Not installed? Run `winget install --id Git.Git -e --source winget`, or use the installer from https://git-scm.com/download/win with the default choices (ask IT if it needs admin rights).
+3. Installed, but still not recognized? Find it:
+   ```powershell
+   Get-ChildItem "C:\Program Files\Git\cmd\git.exe", "C:\Program Files (x86)\Git\cmd\git.exe", "$env:LOCALAPPDATA\Programs\Git\cmd\git.exe" -ErrorAction SilentlyContinue | Select-Object FullName
+   ```
+   Then add that folder (without `git.exe`) to your PATH and open a new window:
+   ```powershell
+   [Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";C:\Program Files\Git\cmd", "User")
+   ```
+4. Or use the full path for now: `& "C:\Program Files\Git\cmd\git.exe" clone https://github.com/Quesito350/Network-Guru.git`.
 
 ## Way B: the release with `install.sh` (the real server install)
 

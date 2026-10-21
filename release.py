@@ -50,7 +50,7 @@ DEFAULT_KEEP = 5
 INCLUDE = ["networkguru", "examples", "tests", "deploy", "tools/fetch_vm.py", "tools/fetch_wheels.py",
            "tools/fetch_images.py", "run.py", "run_demo.bat", "build.bat", "release.py", "requirements.txt",
            "requirements-dev.txt", "pytest.ini", "README.md", "ARCHITECTURE.md", "REQUIREMENTS.md", ".gitattributes",
-           "compose.yaml", ".env.example"]
+           "compose.yaml", "compose.build.yaml", ".env.example", ".github"]
 SKIP_PARTS = {"__pycache__", ".pytest_cache", "vm", ".git"}
 SECRET_KEY = re.compile(r"^\s*-?\s*\{?.*?\b(password|passwd|community|token|api[_-]?key|secret)\b\s*:\s*([^\s,}#]+)",
                         re.IGNORECASE | re.MULTILINE)
@@ -111,6 +111,8 @@ def secret_problems(files: list[Path]) -> list[str]:
         if f.suffix.lower() in (".yaml", ".yml"):
             for m in SECRET_KEY.finditer(text):
                 value = m.group(2).strip("'\"")
+                if value.startswith("${{"):              # a GitHub Actions expression, e.g. ${{ secrets.GITHUB_TOKEN }}
+                    continue
                 if value and value.lower() not in ("null", "none", "~", '""', "''"):
                     problems.append(f"{rel}: '{m.group(1)}' has a value - use a *_ref name instead")
     return problems

@@ -249,13 +249,19 @@ def cmd_serve(args) -> int:
     if rules and not Path(rules).is_file():
         rules = None                     # the site's rules.yaml is optional
     deploy = env.get("NETWORKGURU_DEPLOY") or "dev"
+    inventory = Path(args.inventory)
+    if deploy == "compose" and not inventory.is_file():
+        # the test install shows the demo until the site folder has an inventory; a site server never does
+        print(f"No inventory at {inventory} - showing the demo site. Put the site's inventory.yaml in the site "
+              "folder next to compose.yaml, then: docker compose restart app", flush=True)
+        inventory = EXAMPLE
     dev_pw = None
     if deploy == "compose" and not secret("NETWORKGURU_ADMIN_PASSWORD_HASH"):
-        # the developer install from git has no install.sh to set one: same as run.py dev
+        # the test install has no install.sh to set one: same as run.py dev
         dev_pw = _rand.token_urlsafe(9)
         print(f"Admin page: one-time password for this start: {dev_pw}  (never stored; a new one each start - "
               "or set your own in dev-secrets/secrets.env)", flush=True)
-    s = Settings(inventory=Path(args.inventory), rules=Path(rules) if rules else None,
+    s = Settings(inventory=inventory, rules=Path(rules) if rules else None,
                  data_dir=Path(args.data_dir) if args.data_dir else default_data_dir(),
                  mode=mode, vm_url=args.vm_url or env.get("NETWORKGURU_VM_URL") or None,
                  host=args.host, port=args.port, history_days=args.days,

@@ -9,8 +9,8 @@ import { store } from "./store.js";
 
 export const admin = { configured: false, signedIn: false, name: null, devPassword: false, deploy: "dev" };
 export let updates = null;              // last /api/update/status answer
-// the developer install from git (compose.yaml at the top of the repository) updates itself this way
-export const GIT_UPDATE = "git pull, then docker compose up -d --build, in the Network-Guru folder";
+// the test install (compose.yaml, the published image) is updated this way
+export const GIT_UPDATE = "docker compose pull, then docker compose up -d, in the folder with compose.yaml";
 
 let box = null;
 let footer = null;
@@ -150,7 +150,7 @@ export async function openReview() {
       h("h3", { text: "What's in it" }),
       h("pre", { class: "notes", text: latest.notes || "No release notes." }),
       st.deploy === "compose"
-        ? h("p", { class: "muted", text: `This is a developer install from git, so it does not install updates itself. To update it: ${GIT_UPDATE}.` })
+        ? h("p", { class: "muted", text: `This is a test install from the published image, so it does not install updates itself. To update it: ${GIT_UPDATE}.` })
         : st.can_install
           ? h("p", { class: "muted", text: "Approve downloads it, checks its checksum and version, then the server rebuilds and restarts the dashboard (about a minute). If the new version does not come up healthy, the server goes back to this one by itself." })
           : h("p", { class: "muted", text: "This copy runs on a PC: Approve downloads and checks the update, but installing needs the site server (install.sh)." }));

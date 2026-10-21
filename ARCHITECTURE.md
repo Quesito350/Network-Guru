@@ -1,6 +1,6 @@
 # Network Guru: architecture
 
-Current version: **0.5.3** (2026-10-20). Source: github.com/Quesito350/Network-Guru (public since 0.5.3). Bump `networkguru/__init__.py` `__version__` and add a `networkguru/changelog.py` entry with every change. Update this file and REQUIREMENTS.md every version.
+Current version: **0.5.4** (2026-10-21). Source: github.com/Quesito350/Network-Guru (public since 0.5.3). Bump `networkguru/__init__.py` `__version__` and add a `networkguru/changelog.py` entry with every change. Update this file and REQUIREMENTS.md every version.
 
 ## What it is
 
@@ -194,22 +194,29 @@ Real site files never go in git or a release zip; `.gitignore` and `release.py` 
 - **`HOST_VERSION`:** a number plus a hash of the server-side files. A test fails if those files change without a new hash. Bump the number when installed servers need `install.sh` for the change; an update with a higher number is refused with "needs install.sh".
 - **Database rule:** schema changes must be ADDITIVE (new tables, nullable columns). After a failed update the previous version runs again on the same database. A copy (`/data/backups/networkguru-before-<ver>.db`) is taken before each update.
 
-## Developer install (git + docker compose, 0.5.2)
+## Test install (the published image + docker compose; 0.5.2, image since 0.5.4)
 
-For test PCs (Docker Desktop) and anyone working on the code: `docker compose up -d --build` in a git checkout, and `git pull` + the same command to update. Site servers keep `install.sh`.
+For test PCs (Docker Desktop): `compose.yaml` + `.env` + a `site` folder, `docker compose up -d`, and `docker compose pull` + `up -d` to update. No Git or build is needed. Site servers keep `install.sh`.
+
+- **The image** `ghcr.io/quesito350/network-guru:<version>` / `:<major.minor>` / `:latest` (public, linked to the repository) is made by `.github/workflows/image.yml` on every `v*` tag (release.py pushes one):
+  - It builds `deploy/Dockerfile.dev` for linux/amd64.
+  - **Smoke test:** the image runs locked down like compose (user 10001, read-only, `cap_drop ALL`, no-new-privileges, the ping sysctl, `NETWORKGURU_DEPLOY=compose`, no site folder, so the demo) and must answer `/api/health` within 3 minutes. Only then is it pushed with the workflow's own `GITHUB_TOKEN` (permissions `contents: read`, `packages: write`); no secret is stored.
+  - Every action is pinned to a commit. The one-time password is filtered out of the public log.
+  - `release.py`'s secret check treats `${{ … }}` expressions as placeholders.
+- **`compose.build.yaml`** is an override for a git checkout: it builds the same Dockerfile locally (`-f compose.yaml -f compose.build.yaml up -d --build`).
 
 - **`compose.yaml` at the top of the repository**, project `networkguru-dev`, so it never mixes with an install.sh install (`networkguru`):
   - The app service has the same lock-down as `deploy/compose.yaml`: user 10001, read-only root, tmpfs /tmp, `cap_drop: [ALL]`, no-new-privileges, the ping sysctl, the healthcheck and the log limits. A test compares the two files.
-  - `NETWORKGURU_DEPLOY=compose`. The inventory is one read-only file (`NG_INVENTORY`, default the example). The optional secrets are in `./dev-secrets/secrets.env` (git-ignored), mounted read-only at `/run/networkguru`.
+  - `NETWORKGURU_DEPLOY=compose`. `./site` is mounted read-only at `/site` like on a server (`inventory.yaml`, optional `rules.yaml`); without an inventory there, `serve` shows the built-in example, which the image carries (a site server still stops with an error). The optional secrets are in `./dev-secrets/secrets.env` (git-ignored), mounted read-only at `/run/networkguru`.
   - VictoriaMetrics is the same image and retention, with **no published port**. The subnet is `172.29.251.0/24`, one above the servers', so both kinds can run on one Docker host.
   - Settings come from `.env` next to it (git-ignored; `.env.example` lists every `NG_` variable, and a test checks that).
 - **`deploy/Dockerfile.dev`** is the server Dockerfile without `deploy/wheels` and `VERSION.txt`, which are not in git:
   - `pip download --only-binary=:all: --no-deps --require-hashes` with the same `--platform` list as `tools/fetch_wheels.py`, against `deploy/requirements.lock`, then the same `pip install --no-index --require-hashes`. The packages are the release's, byte for byte. It needs internet while building.
-  - `deploy/Dockerfile.dev.dockerignore` lets in only `networkguru/` and the lock, never `.git`, `.env` or `dev-secrets/`.
+  - `deploy/Dockerfile.dev.dockerignore` lets in only `networkguru/`, the lock and the example inventory, never `.git`, `.env`, `site/` or `dev-secrets/`.
 - **The app in `compose` mode:**
   - It counts as a container (`Runtime.docker`): events on /data, it waits for VictoriaMetrics, and only an admin may inject faults.
   - With no `NETWORKGURU_ADMIN_PASSWORD_HASH`, `serve` prints a one-time admin password to the log at each start, the same as `run.py dev`.
-  - `UpdateManager` refuses Approve and Upload with the git commands. The daily check still runs, so a new release still shows its banner as a reminder. The Admin page and the review dialog show the commands instead of Approve and Upload.
+  - `UpdateManager` refuses Approve and Upload with the update commands (`docker compose pull`, then `up -d`). The daily check still runs, so a new release still shows its banner as a reminder. The Admin page and the review dialog show the commands instead of Approve and Upload.
 - `HOST_VERSION` does not cover these files: they never reach a server.
 
 ## Updates: daily check, the admin decides
@@ -474,6 +481,7 @@ Ranges are capped at 32 days.
 
 ## Version history
 
+- **0.5.4** (2026-10-21): the test-install image on GitHub's registry (`ghcr.io/quesito350/network-guru`), built and smoke-tested by a workflow on each tag. The root `compose.yaml` pulls it (a `site` folder replaces `NG_INVENTORY`, demo without one); `compose.build.yaml` builds from a checkout. `WINDOWS_TEST.md` Way A uses the image, with help for old installs and "git is not recognized".
 - **0.5.3** (2026-10-20): public repository (fresh history; 0.4.0-0.5.2 in the private archive). Site details out of the code: `SITE_DEFAULTS` and the two subnet rules became the Sites sheet of devices.xlsx. Made-up addresses (10.200/16), serials, MACs and a neutral location (Salt Lake City) in the example, tests and docs, plus a test that allows only made-up private ranges. The update check and download work without a GitHub token.
 - **0.5.2** (2026-10-20): developer / test install from git: top-level `compose.yaml` + `deploy/Dockerfile.dev` (the release's packages from PyPI, hash-checked), `NETWORKGURU_DEPLOY=compose` (one-time admin password in the log, Approve/Upload refused with the git commands). `WINDOWS_TEST.md` Way A. `secrets.env` with a byte-order mark is read.
 - **0.5.1** (2026-10-20): `install.sh` creates the host account for id 10001, so it works on Ubuntu 26.04 (Rust coreutils). Added `deploy/WINDOWS_TEST.md` for Docker Desktop test PCs.

@@ -205,19 +205,19 @@ def test_approve_on_a_pc_only_stages(tmp_path, gh):
 
 
 def test_developer_install_only_reminds(tmp_path, gh):
-    """compose.yaml from a git checkout: the check still offers a newer release, but it updates
-    with git pull - Approve and Upload are refused and nothing is staged."""
+    """The test install (compose.yaml): the check still offers a newer release, but it updates
+    with docker compose pull - Approve and Upload are refused and nothing is staged."""
     gh.publish(tmp_path, NEWER)
     um, _ = manager(tmp_path, deploy="compose")
     run(um.check())
     st = um.public_status()
     assert st["offered"] == NEWER and st["deploy"] == "compose" and st["can_install"] is False
-    with pytest.raises(UpdateError, match="git pull, then docker compose up -d --build"):
+    with pytest.raises(UpdateError, match="docker compose pull, then docker compose up -d"):
         um.approve("Casey")
 
     async def chunks():
         yield b"PK"
-    with pytest.raises(UpdateError, match="git pull"):
+    with pytest.raises(UpdateError, match="docker compose pull"):
         run(um.upload(f"NetworkGuru_v{NEWER}.zip", "1" * 64, chunks(), "Casey"))
     staged = tmp_path / "updates"
     assert um.job["state"] == "idle" and (not staged.exists() or not any(staged.iterdir()))

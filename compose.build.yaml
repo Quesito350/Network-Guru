@@ -1,0 +1,11 @@
+# Network Guru - build the test install's image from this git checkout instead of pulling it.
+# Use it on top of compose.yaml:
+#   docker compose -f compose.yaml -f compose.build.yaml up -d --build
+# (git pull, then the same command, to update). Needs internet while it builds.
+services:
+  app:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.dev
+    image: networkguru-app:dev
+    pull_policy: build                     # always built from this checkout, never pulled

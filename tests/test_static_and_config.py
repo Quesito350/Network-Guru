@@ -51,7 +51,11 @@ def test_release_refuses_secrets(tmp_path, monkeypatch):
     env.write_text("X=1\n", encoding="utf-8")
     wg = tmp_path / "wg.conf"
     wg.write_text("[Interface]\nPrivateKey = abc\n", encoding="utf-8")
-    assert rel.secret_problems([good]) == []
+    wf = tmp_path / "image.yml"                          # a GitHub Actions expression is a placeholder ...
+    wf.write_text("steps:\n  - with:\n      password: ${{ secrets.GITHUB_TOKEN }}\n", encoding="utf-8")
+    assert rel.secret_problems([good, wf]) == []
+    wf.write_text("steps:\n  - with:\n      password: abc123\n", encoding="utf-8")   # ... a real value is not
+    assert any("image.yml: 'password'" in p for p in rel.secret_problems([wf]))
     problems = rel.secret_problems([bad, env, wg])
     assert any("bad.yaml: 'password'" in p for p in problems)
     assert any("bad.yaml: 'community'" in p for p in problems)
@@ -145,7 +149,8 @@ def test_release_ships_the_server_files_without_secrets():
     shipped = {f.relative_to(ROOT).as_posix() for f in rel.files_to_ship()}
     for need in ("deploy/install.sh", "deploy/compose.yaml", "deploy/Dockerfile", "deploy/ng_updater.py",
                  "deploy/requirements.lock", "deploy/HOST_VERSION", "tools/fetch_wheels.py", "tools/fetch_images.py",
-                 "compose.yaml", ".env.example", "deploy/Dockerfile.dev", "deploy/Dockerfile.dev.dockerignore"):
+                 "compose.yaml", ".env.example", "deploy/Dockerfile.dev", "deploy/Dockerfile.dev.dockerignore",
+                 "compose.build.yaml", ".github/workflows/image.yml"):
         assert need in shipped
     assert rel.secret_problems(rel.files_to_ship()) == []
 

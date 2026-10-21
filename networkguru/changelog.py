@@ -7,6 +7,15 @@ networkguru.__version__ - release.py refuses to package otherwise).
 """
 
 CHANGES = [
+    ("0.5.4", "2026-10-21", [
+        "Each release is now also a Docker image on GitHub (ghcr.io/quesito350/network-guru), built and "
+        "tested there. A test PC needs only Docker Desktop and two small files: 'docker compose up -d' to start, "
+        "'docker compose pull' and 'docker compose up -d' to update. No Git and no build on the PC.",
+        "The site's inventory.yaml goes in a 'site' folder next to compose.yaml. Without one, the test install "
+        "shows the demo site.",
+        "deploy/WINDOWS_TEST.md: the new steps, what to do with older installs on the PC, and help when "
+        "PowerShell says 'git is not recognized'.",
+    ]),
     ("0.5.3", "2026-10-20", [
         "The source is public on GitHub (Quesito350/Network-Guru), starting fresh at this version. The "
         "daily update check and the download now work without a GitHub token (one is still used if set).",

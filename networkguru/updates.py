@@ -7,8 +7,8 @@
                        writes update-result.json, which becomes an event and a banner here
     admin: Remind me tomorrow / Skip this version
     offline site:      the admin uploads the zip + .sha256 on the admin page (same checks)
-developer install: (compose.yaml from a git checkout) the check only reminds; it updates with
-                   git pull + docker compose up -d --build, so Approve and Upload are refused
+test install:      (compose.yaml, the published image) the check only reminds; it updates with
+                   docker compose pull + docker compose up -d, so Approve and Upload are refused
 
 The container has no Docker socket: it only drops files into the shared updates folder.
 Everything the container writes there is checked again by the host.
@@ -45,7 +45,7 @@ MAX_UNPACKED = 800 * 1024 * 1024
 MAX_ENTRIES = 5000
 PICKUP_S = 120                       # the host updater should start within this
 ACTIVE = ("downloading", "verifying", "requested", "installing")
-GIT_UPDATE = "This is a developer install from git: update it with git pull, then docker compose up -d --build"
+GIT_UPDATE = "This is a test install from the published image: update it with docker compose pull, then docker compose up -d"
 _TOP = re.compile(r"^NetworkGuru_v(\d+\.\d+\.\d+)/")
 
 

@@ -73,7 +73,7 @@ function updatesPanel(u) {
     checkBtn.disabled = false;
   } });
   const git = u.deploy === "compose";
-  const how = git ? " · developer install from git (update: git pull, then docker compose up -d --build)"
+  const how = git ? " · test install from the GitHub image (update: docker compose pull, then docker compose up -d)"
     : u.can_install ? " · installed with install.sh (updates install here)" : " · this PC (updates download and are checked, not installed)";
   const table = h("table", { class: "info-table" }, h("tbody", {},
     row("Running", h("b", { text: u.current }), how),

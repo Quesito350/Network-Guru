@@ -81,17 +81,15 @@ def test_dev_compose_has_the_server_lockdown():
     for key in ("image", "command", "volumes", "cap_drop", "security_opt", "restart", "stop_grace_period", "logging"):
         assert vm[key] == pvm[key], key
     assert "ports" not in vm                         # never clashes with an install.sh install's 127.0.0.1:8428
-    assert app["build"] == {"context": ".", "dockerfile": "deploy/Dockerfile.dev"} and app["pull_policy"] == "build"
-    assert (ROOT / app["build"]["dockerfile"]).is_file()
+    assert app["image"] == "ghcr.io/quesito350/network-guru:${NG_TAG:-latest}" and "build" not in app
+    assert app["pull_policy"] == "missing"                     # the test PC needs no source: it pulls the image
     env = app["environment"]
     assert env["NETWORKGURU_DEPLOY"] == "compose" and env["NETWORKGURU_SECRETS"] == "/run/networkguru/secrets.env"
-    assert env["NETWORKGURU_VM_URL"] == papp["environment"]["NETWORKGURU_VM_URL"]
+    for key in ("NETWORKGURU_VM_URL", "NETWORKGURU_RULES"):
+        assert env[key] == papp["environment"][key], key
     subnet = dev["networks"]["ng"]["ipam"]["config"][0]["subnet"]
     assert subnet == env["NG_SUBNET"] != prod["networks"]["ng"]["ipam"]["config"][0]["subnet"]
-    assert "appdata:/data" in app["volumes"] and "./dev-secrets:/run/networkguru:ro" in app["volumes"]
-    site = [v for v in app["volumes"] if v.endswith(":/site/inventory.yaml:ro")]
-    assert len(site) == 1 and "./examples/inventory.example.yaml" in site[0]
-    assert (ROOT / "examples" / "inventory.example.yaml").is_file()
+    assert app["volumes"] == ["appdata:/data", "./site:/site:ro", "./dev-secrets:/run/networkguru:ro"]
     text = (ROOT / "compose.yaml").read_text(encoding="utf-8")
     assert "docker.sock" not in text and "privileged" not in text and "/var/lib/networkguru" not in text
     assert "env_file" not in text and not re.search(r"down\s+(-\w*v|--volumes)", text)
@@ -125,15 +123,54 @@ def test_dev_dockerfile_builds_the_server_image_from_pypi():
     assert "-r /tmp/requirements.lock" in dev
     ignore = [ln.strip() for ln in (DEPLOY / "Dockerfile.dev.dockerignore").read_text(encoding="utf-8").splitlines()
               if ln.strip() and not ln.startswith("#")]
-    assert ignore[0] == "*" and {ln for ln in ignore if ln.startswith("!")} == {"!networkguru", "!deploy/requirements.lock"}
+    assert ignore[0] == "*" and {ln for ln in ignore if ln.startswith("!")} == {
+        "!networkguru", "!deploy/requirements.lock", "!examples/inventory.example.yaml"}
+    assert "COPY examples/inventory.example.yaml /app/examples/inventory.example.yaml" in d   # the demo fallback
+
+
+def test_build_override_makes_the_image_from_the_checkout():
+    over = yaml.safe_load((ROOT / "compose.build.yaml").read_text(encoding="utf-8"))
+    app = over["services"]["app"]
+    assert set(over["services"]) == {"app"} and set(app) == {"build", "image", "pull_policy"}
+    assert app["build"] == {"context": ".", "dockerfile": "deploy/Dockerfile.dev"} and app["pull_policy"] == "build"
+    assert (ROOT / app["build"]["dockerfile"]).is_file() and app["image"] == "networkguru-app:dev"
+
+
+def test_image_workflow_pushes_only_a_smoke_tested_image():
+    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "image.yml").read_text(encoding="utf-8"))
+    on = wf.get("on", wf.get(True))                                     # YAML 1.1 reads "on" as true
+    assert on["push"] == {"tags": ["v*"]} and "workflow_dispatch" in on
+    assert wf["permissions"] == {"contents": "read", "packages": "write"}
+    assert wf["env"]["IMAGE"] == "ghcr.io/quesito350/network-guru"
+    steps = wf["jobs"]["image"]["steps"]
+    for st in steps:
+        if "uses" in st:                                                # pinned to a commit, never a moving tag
+            assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", st["uses"]), st["uses"]
+    names = [st.get("name", "") for st in steps]
+    smoke = next(i for i, n in enumerate(names) if n.startswith("Smoke test"))
+    login = next(i for i, st in enumerate(steps) if "login-action" in st.get("uses", ""))
+    pushes = [i for i, st in enumerate(steps) if st.get("with", {}).get("push") is True]
+    assert smoke < login < pushes[0] and len(pushes) == 1
+    for i, st in enumerate(steps):
+        if "build-push-action" in st.get("uses", ""):
+            w = st["with"]
+            assert w["file"] == "deploy/Dockerfile.dev" and w["platforms"] == "linux/amd64" and w["context"] == "."
+            assert w.get("push") is True or (w.get("load") is True and i < smoke)
+    run = steps[smoke]["run"]
+    for flag in ("--user 10001:10001", "--read-only", "--cap-drop ALL", "no-new-privileges", "NETWORKGURU_DEPLOY=compose",
+                 "/api/health", "exit 1"):
+        assert flag in run, flag
+    assert "grep -v \"one-time password\"" in run                        # the public log never shows it
+    assert steps[login]["with"]["password"] == "${{ secrets.GITHUB_TOKEN }}"    # GitHub's own token, no stored secret
 
 
 def test_dev_install_files_stay_out_of_git():
     if not (ROOT / ".git").exists():
         pytest.skip("not a git checkout")
     ignored = lambda p: subprocess.run(["git", "check-ignore", "-q", p], cwd=ROOT).returncode == 0  # noqa: E731
-    assert ignored(".env") and ignored("dev-secrets/secrets.env")
-    assert not ignored(".env.example") and not ignored("compose.yaml") and not ignored("deploy/Dockerfile.dev")
+    assert ignored(".env") and ignored("dev-secrets/secrets.env") and ignored("site/inventory.yaml")
+    for keep in (".env.example", "compose.yaml", "compose.build.yaml", "deploy/Dockerfile.dev", ".github/workflows/image.yml"):
+        assert not ignored(keep), keep
     assert "NG_" in (ROOT / ".env.example").read_text(encoding="utf-8")
     assert not re.search(r"(TOKEN|PASSWORD|SECRET|WEBHOOK)\w*=", (ROOT / ".env.example").read_text(encoding="utf-8"))
 
