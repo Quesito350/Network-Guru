@@ -39,3 +39,4 @@
 | R33 | A map of the site: every location as a pin in its live status, vehicles where their GNSS last put them, the 60 GHz links; satellite images when online, a plain map by GPS offline; positions from the spreadsheet (Rajant GPS fills them) | 0.6.0 |
 | R34 | An admin can download a problem report (status, events, logs, inventory, page errors) for whoever looks into an issue; never any secret | 0.6.0 |
 | R35 | Live mode shows real reachability (ping latency/loss, service ports) for every device with an address, without logins; the device readers follow | 0.6.0 (test PC / site run pending) |
+| R36 | Live mode reads the devices' own values: Rajant SNMP v3 (authPriv), Tachyon and switch read-only SNMP, Cerbo GX Modbus TCP, the Mobius InfluxDB (VCU, GNSS positions, VAI); logins only by name from secrets.env; a device that answers but cannot be read is a Warning with the reason | 0.7.0 (vendor values + Mobius mapping 0.7.1; site run pending) |

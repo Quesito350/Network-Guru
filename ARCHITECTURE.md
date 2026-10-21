@@ -1,6 +1,6 @@
 # Network Guru: architecture
 
-Current version: **0.6.0** (2026-10-21). Source: github.com/Quesito350/Network-Guru (public since 0.5.3). Bump `networkguru/__init__.py` `__version__` and add a `networkguru/changelog.py` entry with every change. Update this file and REQUIREMENTS.md every version.
+Current version: **0.7.0** (2026-10-21). Source: github.com/Quesito350/Network-Guru (public since 0.5.3). Bump `networkguru/__init__.py` `__version__` and add a `networkguru/changelog.py` entry with every change. Update this file and REQUIREMENTS.md every version.
 
 ## What it is
 
@@ -77,7 +77,11 @@ browser ──► REST /api/... (history charts, availability, path, events) ─
 | `sim/noise.py`, `sim/world.py`, `sim/backfill.py` | deterministic simulator and the 30-day fast-forward through the real pipeline |
 | `web/app.py`, `web/api.py`, `web/ws.py` | FastAPI app, REST endpoints, WebSocket (snapshot, then 1 s deltas) |
 | `web/static/` | `index.html`, `css/app.css`, `js/app.js` (routing, header, drawer, modals), `js/views/*` (incl. `map.js`), `js/widgets/*` (chart, path, small, `slippy.js` map), `js/problem.js` (Report a problem, caught page errors) |
-| `drivers/reach.py` | live mode: ping (unprivileged ICMP socket on Linux, `IcmpSendEcho` on Windows) and TCP port checks, one poller per component |
+| `drivers/reach.py` | live mode: ping (unprivileged ICMP socket on Linux, `IcmpSendEcho` on Windows) and TCP port checks |
+| `drivers/snmp.py`, `snmp_profiles.py` | SNMP v2c / v3 (USM: SHA1 auth, AES-128 privacy) client; what each type is asked for |
+| `drivers/modbus.py`, `victron.py` | Modbus TCP client; the Cerbo GX registers (Victron's register list rev 3.81) |
+| `drivers/influx.py`, `mobius.py`, `mobius_map.py` | InfluxDB 1.x client + `probe-influx`; the Mobius reader and its mapping |
+| `drivers/readers.py`, `device.py`, `drivers/__init__.py` | the per-device readers; one poller per device (ping + ports + reader); `live_pollers` |
 | `maptiles.py`, `problem_report.py`, `logbuffer.py` | map backgrounds and their CSP origin; the problem-report zip; the last 2000 log lines in memory |
 
 ## Status rules (pipeline)
@@ -445,14 +449,25 @@ Ranges are capped at 32 days.
   - Background: `map_background` setting (satellite / street / none, `maptiles.py`). The CSP `img-src` gets only that provider's origin (`web/app.py csp()`); tiles are loaded by the browser, never the server.
 - **Report a problem:** `POST /api/admin/problem-report` (admin + same origin) returns a zip built in memory by `problem_report.build`: report.txt, status.json, events.json (7 days), log.txt (`logbuffer`), browser-errors.json (from `js/problem.js`), updates.json, morning-report.json, inventory.yaml. Every text goes through `config.mask()`; secrets.env, hashes and session tokens are never read into it. Downloading is an admin event.
 
+## Device readers (0.7.0)
+
+- **One poller per device** (`drivers/device.py DevicePoller`): ping + ports (`ReachPoller`) and the type's reader in one `CompResult` - the pipeline takes a component's metrics from one result. The reader runs at most every 30 s (`READ_EVERY_S`); between reads its last values go out again.
+  - A read that fails on a device that answers is `read_ok{via=snmp|modbus|influx}` = 0 (rule `zero: warning`, reason "Device data (snmp): Not read") with `info.read_error`. A device that answers its reader but not ping (ICMP filtered) is reachable.
+  - Logins: the component's `*_ref` names (from `defaults.types`, or `importers/build.py TYPE_DEFAULTS` for a hand-written inventory), read through `config.secret()` on every read - adding them needs no restart. Missing ones: "not set up", no read, one dashboard note (`live_pollers`).
+- **SNMP** (`drivers/snmp.py`, standard library + `cryptography` for AES): BER, GET / GETBULK walks over UDP with retries; v2c; v3 USM per RFC 3414 / 3826 (engine discovery, password-to-key localisation - tested with the RFC 3414 A.3.2 vector - HMAC-SHA1-96, AES-128-CFB, one time-window resync), the usmStats reports as readable errors. `snmp_profiles.py`: sysUpTime / sysName / sysDescr; IF-MIB 64-bit (else 32-bit) octet rates over up, non-loopback interfaces with counter-wrap handling; switch ports up (Ethernet types, oper up) and POWER-ETHERNET-MIB consumption. `VENDOR` tables for Rajant / Tachyon OIDs (filled from the MIB files in 0.7.1).
+- **Modbus** (`drivers/modbus.py`, standard library): function 3 with exception codes. `victron.py`: unit 100 (com.victronenergy.system) 817-819, 840-843, 850, 860; the solar charger's unit (`mppt_unit`, Devices sheet "Modbus unit") 775 / 784 - checked against Victron's register list rev 3.81.
+- **Mobius** (`drivers/influx.py`, `mobius.py`): InfluxDB 1.x over httpx; `probe-influx` writes the layout (names, types, asset tag values, newest times - no data values). `MobiusPoller` (one for all mapped components) asks `SELECT <fields> ... WHERE time > now() - 2m GROUP BY <asset tag> ORDER BY time DESC LIMIT 1` per mapped measurement, matches the tag to the vehicle's `mobius_asset`, makes numbers metrics and lat / lon info (the map); data older than 60 s = no data. `mobius_map.DEFAULT_MAP` is empty until the Mendon probe output; `mobius.map` in the inventory overrides it. Unmapped types: "Not mapped yet".
+- **Bring-up:** `probe-snmp`, `probe-modbus`, `probe-influx` (logins from secrets.env only). `install.sh --secrets` asks for every `*_ref` name in the site's inventory (stdlib text scan, comments ignored).
+
 ## Roadmap
 
 | Ver | What | Verify where |
 |---|---|---|
 | 0.5.0 ✓ | Docker install + **daily update check with admin approval** + **morning report** (details below). Built 2026-10-15; the hardware test (`deploy/HARDWARE_TEST.md`) is still to do | site VM |
 | 0.6.0 ✓ | ping/TCP live checks, the site map, Report a problem (details in *Live checks, map and problem report*) | test PC / Mendon LAN |
-| 0.7.0 | the device readers (details below) | Mendon LAN |
-| 0.8.0 | readers 2: Celona Orchestrator, Starlink gRPC, airMAX SNMP, UniFi API, Westermo SNMP, windows_exporter; address lookups for DHCP (UniFi clients, MikroTik leases/ARP, Rajant ARP over SNMP, MNDP, DNS) | each device type |
+| 0.7.0 ✓ | the device readers: SNMP (standard MIBs), Modbus (Cerbo GX), `probe-influx` + the mapping-driven Mobius reader (details in *Device readers*) | test PC / Mendon LAN |
+| 0.7.1 | Rajant / Tachyon vendor values from their MIB files; the Mobius mapping from `probe-influx` at Mendon | Mendon LAN |
+| 0.8.0 | readers 2: MikroTik REST (GET only), Celona Orchestrator, Starlink gRPC, airMAX SNMP, UniFi API, Westermo SNMP, windows_exporter; address lookups for DHCP (UniFi clients, MikroTik leases/ARP, Rajant ARP over SNMP, MNDP, DNS) | each device type |
 | 1.0.0 | thresholds reviewed with ops, optional view password, HTTPS (admin sign-in is plain HTTP on the LAN in 0.5.0), second-site offline install | site |
 | later | Rajant BCAPI (live "via tower X"), Helm direct (`WAN:21443`), 30-day backfill from Mobius Influx, vehicle tracks on the map (from history), control-room kiosk mode | |
 
@@ -470,13 +485,7 @@ Ranges are capped at 32 days.
   - always sent, even when all green, so a missing report means the tool is broken
   - red and yellow first, then what changed since yesterday
 
-**0.7.0 in more detail** (the device readers; ping/TCP shipped in 0.6.0):
-- **Rajant SNMP v3 authPriv** (SHA1/AES128, one user for all radios; v1/2c is locked to "public")
-- **Tachyon read-only SNMP** (TACHYON-MIB), not the REST login, which can change settings
-- trailer switch SNMP: port state and PoE watts
-- Cerbo GX Modbus TCP (read-only)
-- `probe-influx` + the Mobius InfluxDB driver
-- MikroTik REST (GET only)
+**Device readers, as planned** (built in 0.7.0, see *Device readers*): Rajant SNMP v3 authPriv (SHA1/AES128, one user for all radios; v1/2c is locked to "public"); Tachyon read-only SNMP (TACHYON-MIB), not the REST login, which can change settings; trailer switch SNMP (port state, PoE watts); Cerbo GX Modbus TCP (read-only); `probe-influx` + the Mobius InfluxDB reader. MikroTik REST moved to 0.8.0.
 
 **Ideas taken from the V&V team's "Radio network health monitor" plan:** the morning report and its rules, SNMP v3 for Rajant, read-only SNMP for Tachyon, and treating a down Celona Orchestrator as one problem (a data-source component that its APs depend on). Its "3 tries, 1 minute apart" retry rule is already the Offline rule (3 missed polls). Its SNMP change request for the 8 Rajants should list the Network Guru server as the source IP.
 
@@ -497,6 +506,7 @@ Ranges are capped at 32 days.
 
 ## Version history
 
+- **0.7.0** (2026-10-21): device readers - SNMP v2c / v3 (Rajant, Tachyon, switches; standard MIBs), Modbus TCP (Cerbo GX), the Mobius InfluxDB reader driven by a mapping + `probe-influx`; one `DevicePoller` per device with `read_ok`; probe commands; `install.sh --secrets` asks for the inventory's login names; new dependency `cryptography` (AES for SNMP v3).
 - **0.6.0** (2026-10-21): live mode pings every device and checks its service ports (`drivers/reach.py`); the Map page (`slippy.js`, `map.js`, Lat / Lon on the Groups sheet, `map_background` + CSP); Report a problem (admin zip, page error capture, log buffer). Device readers moved to 0.7.0.
 - **0.5.5** (2026-10-21): release.py starts the image workflow itself and waits for it (`build_image`), so each release also publishes the test-install image; the workflow is `workflow_dispatch` only.
 - **0.5.4** (2026-10-21): the test-install image on GitHub's registry (`ghcr.io/quesito350/network-guru`), built and smoke-tested by a workflow on each tag. The root `compose.yaml` pulls it (a `site` folder replaces `NG_INVENTORY`, demo without one); `compose.build.yaml` builds from a checkout. `WINDOWS_TEST.md` Way A uses the image, with help for old installs and "git is not recognized".

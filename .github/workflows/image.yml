@@ -71,7 +71,7 @@ jobs:
               echo "healthy after about $((i * 2)) s"
               docker logs ng-smoke 2>&1 | grep -v "one-time password" | tail -20
               # live mode pings without root: an unprivileged ICMP socket, allowed by the sysctl above
-              docker exec ng-smoke python -c "import asyncio; from networkguru.drivers.reach import icmp_available, ping; ok, why = icmp_available(); assert ok, why; r = asyncio.run(ping('127.0.0.1')); assert r, 'no ping reply'; print('ping in the locked-down container:', [round(x, 2) for x in r], 'ms')"
+              docker exec ng-smoke python -c "import asyncio; from networkguru.drivers.reach import icmp_available, ping; ok, why = icmp_available(); assert ok, why; r = asyncio.run(ping('127.0.0.1')); assert r, 'no ping reply'; print('ping in the locked-down container:', [round(x, 2) for x in r], 'ms'); import networkguru.drivers.snmp as s; s.aes_cfb(bytes(16), bytes(16), b'x', True); print('SNMP v3 crypto works')"
               exit 0
             fi
             sleep 2

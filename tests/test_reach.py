@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from networkguru.drivers import reach
+from networkguru.drivers import NOT_MAPPED, reach
 from networkguru.drivers.reach import (NOT_CHECKED, PINGS, ReachPoller, checksum, echo_request, icmp_available,
                                        parse_echo_reply, ports_of, reach_pollers, tcp_check)
 from networkguru.events import EventStore
@@ -140,7 +140,8 @@ def test_live_runtime_note_and_unchecked(tmp_path):
     app = create_app(Settings(inventory=EXAMPLE, mode="live", history_days=1, vm_url=None, data_dir=tmp_path))
     with TestClient(app) as c:
         meta = c.get("/api/meta").json()
-        assert any(n.startswith("Live mode: ping and port checks only") for n in meta["notes"])
+        assert any(n.startswith("Live mode: ping and port checks for every device") for n in meta["notes"])
+        assert any("RAJANT_SNMP_USER" in n for n in meta["notes"])             # readers not set up: named once
         live = c.get("/api/live").json()["nodes"]
-        assert live["ac2845-vcu"]["r"] == [NOT_CHECKED] and len(app.state.rt.scheduler.pollers) > 20
+        assert live["ac2845-vcu"]["r"] == [NOT_MAPPED] and len(app.state.rt.scheduler.pollers) > 20
     assert PINGS == 4

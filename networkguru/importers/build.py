@@ -192,6 +192,11 @@ def build_inventory(sheet: Sheet, site: str, name: str | None = None, timezone: 
                 c["address"] = "dhcp"
             if typ in TYPE_CHECKS and d["IP"]:
                 c["checks"] = list(TYPE_CHECKS[typ])
+            if d["Modbus unit"]:
+                if d["Modbus unit"].strip().isdigit():
+                    c["mppt_unit"] = int(d["Modbus unit"])
+                else:
+                    report.append(f"! {g['Group']} / {d['Name']}: Modbus unit '{d['Modbus unit']}' is not a number")
             if d["Install RSSI"]:
                 try:
                     c["install_rssi"] = float(d["Install RSSI"])

@@ -184,6 +184,26 @@ def test_install_script():
     assert code.count("read -r -s") >= 3 and "umask 077" in code and "chmod 600" in code
     assert 'printf \'%s\\n\' "$p1" | python3 -I' in code             # password through stdin, never argv
     assert "source " not in code and "eval " not in code                # secrets.env is parsed, never run
+    # --secrets also asks for the device logins the inventory names (*_ref: NAME), hidden like the rest
+    scan = re.search(r"<<'PY'\n(.*?)\nPY", text, re.S).group(1)
+    assert "_ref" in scan and 'ask_secret "$name"' in code and '"$BASE/site/inventory.yaml"' in code
+    ns: dict = {}
+    sample = "# user_ref: IN_A_COMMENT\ndefaults:\n  types:\n    rajant: {snmp_user_ref: RAJANT_SNMP_USER, snmp_auth_ref: RAJANT_SNMP_AUTH}\n"
+    import contextlib
+    import io
+    import sys
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, encoding="utf-8") as f:
+        f.write(sample)
+    old, out = sys.argv, io.StringIO()
+    try:
+        sys.argv = ["-", f.name]
+        with contextlib.redirect_stdout(out):
+            exec(compile(scan, "install.sh scan", "exec"), ns)
+    finally:
+        sys.argv = old
+        os.unlink(f.name)
+    assert out.getvalue().split() == ["RAJANT_SNMP_AUTH", "RAJANT_SNMP_USER"]            # not the comment
     # Ubuntu 26.04's Rust coreutils refuse a bare owner id with no account ("invalid user: '10001'"),
     # so the host account must exist before the first install -o / chown with the app's id.
     made = code.index('useradd --system --uid "$APP_UID"')

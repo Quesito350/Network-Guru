@@ -77,6 +77,32 @@ docker compose up -d
 New-NetFirewallRule -DisplayName "Network Guru 8080" -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow
 ```
 
+### A5b. Real devices (live mode)
+
+Set `NG_MODE=live` in `.env` (then `docker compose up -d`). For the devices' own values, put their logins in `C:\NetworkGuru\dev-secrets\secrets.env` (see A6 for the file), one per line:
+
+```
+RAJANT_SNMP_USER=...
+RAJANT_SNMP_AUTH=...
+RAJANT_SNMP_PRIV=...
+TACHYON_SNMP_RO=...
+SWITCH_SNMP_RO=...
+```
+
+Then try one device of each kind before looking at the dashboard:
+
+```powershell
+docker compose exec app python -m networkguru probe-snmp <switch IP> --type switch
+docker compose exec app python -m networkguru probe-snmp <Rajant IP> --type rajant
+docker compose exec app python -m networkguru probe-modbus <Cerbo IP>
+docker compose exec app python -m networkguru probe-influx --url http://<Mobius server>:8086 --out /data/influx-layout.txt
+docker compose cp app:/data/influx-layout.txt .
+```
+
+- Each probe prints the values it got, or why it could not (wrong login, no answer, port closed).
+- `probe-influx` lists the Mobius database's names only - send `influx-layout.txt` so the next build can map the VCU, GNSS and VAI values.
+- On the Cerbo GX, switch Modbus TCP on (Settings → Services → Modbus TCP) and note the solar charger's unit ID for the **Modbus unit** column of the Devices sheet.
+
 ### A6. Admin sign-in
 
 ```powershell

@@ -161,6 +161,8 @@ class RuleSet:
         label = spec.label
         if "port" in m.labels:                     # "Port 2101: Closed"
             label = f"{label} {m.labels['port']}"
+        elif "via" in m.labels:                    # "Device data (snmp): Not read"
+            label = f"{label} ({m.labels['via']})"
         v = m.value
         # state metrics
         if "zero" in rule and v == 0:

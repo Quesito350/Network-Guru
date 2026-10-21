@@ -4,6 +4,9 @@
   python -m networkguru serve --inventory X      the dashboard server (Docker uses this)
   python -m networkguru check-inventory X        validate an inventory, list missing secret NAMES
   python -m networkguru hash-password            admin password (stdin) -> the hash for secrets.env
+  python -m networkguru probe-snmp IP --type T    what the SNMP reader gets from a device (logins from secrets.env)
+  python -m networkguru probe-modbus IP           what the Modbus reader gets from a Cerbo GX
+  python -m networkguru probe-influx --url URL    the Mobius InfluxDB layout (names only) for the Mobius mapping
   python -m networkguru version
 """
 
@@ -220,6 +223,115 @@ def cmd_hash_password(args) -> int:
     return 0
 
 
+def _probe_comp(args, typ: str):
+    """A component for a probe: from the inventory when it has this address, else the type's standard logins."""
+    from .inventory import Component, load_inventory
+    inv_path = args.inventory or os.environ.get("NETWORKGURU_PROBE_INVENTORY") or "/site/inventory.yaml"
+    if Path(inv_path).is_file():
+        try:
+            for c in load_inventory(inv_path).comps.values():
+                if (c.host or "").split(":")[0] == args.host and c.type == typ:
+                    return c
+        except InventoryError:
+            pass
+    return Component(id="probe", type=typ, host=args.host)
+
+
+def _print_read(metrics, info) -> None:
+    from .catalog import metric_spec
+    for m in metrics:
+        spec = metric_spec(m.name)
+        label = spec.label + (f" ({', '.join(m.labels.values())})" if m.labels else "")
+        text = spec.enum.get(int(m.value), m.value) if spec.enum else round(m.value, max(spec.dec, 1))
+        print(f"  {m.key:34} {label}: {text} {spec.unit}".rstrip())
+    for k, v in info.items():
+        print(f"  info {k}: {v}")
+
+
+def cmd_probe_snmp(args) -> int:
+    import asyncio
+
+    from .drivers.readers import ReadError, SnmpReader
+    from .drivers.snmp import SnmpError
+    r = SnmpReader(_probe_comp(args, args.type))
+    missing = r.missing()
+    if missing:
+        print(f"Not set up: add {', '.join(missing)} to secrets.env (the test install: dev-secrets/secrets.env).")
+        return 1
+    print(f"{args.type} at {args.host} - {r.label}")
+
+    async def go():
+        if args.walk:
+            c = r._client_for()
+            try:
+                rows = await c.walk(args.walk, max_rows=args.max)
+            finally:
+                c.close()
+            for oid, v in rows:
+                print(f"  {oid} = {v.decode('utf-8', 'replace') if isinstance(v, bytes) else v}")
+            print(f"{len(rows)} values under {args.walk}")
+            return
+        m, i = await r.read(0.0)
+        await asyncio.sleep(args.gap)                  # a second read, for the traffic rates
+        m, i = await r.read(args.gap)
+        _print_read(m, i)
+    try:
+        asyncio.run(go())
+    except (ReadError, SnmpError) as e:
+        print(f"Could not read it: {e}")
+        return 1
+    return 0
+
+
+def cmd_probe_modbus(args) -> int:
+    import asyncio
+
+    from .drivers.modbus import ModbusClient, ModbusError
+    from .drivers.victron import read
+
+    async def go():
+        async with ModbusClient(args.host, args.port) as m:
+            return await read(m, args.mppt_unit)
+    try:
+        metrics, info = asyncio.run(go())
+    except ModbusError as e:
+        print(f"Could not read it: {e}")
+        return 1
+    print(f"Cerbo GX at {args.host}:{args.port} - Modbus TCP")
+    _print_read(metrics, info)
+    return 0
+
+
+def cmd_probe_influx(args) -> int:
+    import asyncio
+
+    from .config import secret
+    from .drivers.influx import InfluxClient, InfluxError, probe
+    url = args.url
+    if not url:
+        inv_path = args.inventory or "/site/inventory.yaml"
+        if Path(inv_path).is_file():
+            url = load_inventory(inv_path).data.mobius.influx_url
+    if not url:
+        print("Give the address: --url http://<mobius server>:8086")
+        return 1
+
+    async def go():
+        async with InfluxClient(url, None, secret(args.user_ref) if args.user_ref else None,
+                                secret(args.password_ref) if args.password_ref else None) as c:
+            return await probe(c, args.db)
+    try:
+        text = asyncio.run(go())
+    except InfluxError as e:
+        print(f"Could not read it: {e}")
+        return 1
+    print(text)
+    if args.out:
+        Path(args.out).write_text(text + "\n", encoding="utf-8")
+        print(f"Saved to {args.out} - send this file (it holds names, never data values).")
+    return 0
+
+
 def cmd_dev(args) -> int:
     data_dir = Path(args.data_dir) if args.data_dir else default_data_dir()
     vm_url = None
@@ -323,6 +435,28 @@ def main(argv: list[str] | None = None) -> int:
                    help="redundant: trailers reached over Tachyon AND the Rajant mesh (default); "
                         "tachyon: the 60 GHz links are the only path")
     b.set_defaults(fn=cmd_build)
+
+    ps = sub.add_parser("probe-snmp", help="what the SNMP reader gets from one device")
+    ps.add_argument("host")
+    ps.add_argument("--type", required=True, choices=("rajant", "tachyon", "switch"))
+    ps.add_argument("--inventory", help="for this device's logins (default: /site/inventory.yaml, else the standard names)")
+    ps.add_argument("--walk", help="dump everything under this OID instead (e.g. a vendor subtree)")
+    ps.add_argument("--max", type=int, default=500, help="most values for --walk")
+    ps.add_argument("--gap", type=float, default=3.0, help="seconds between the two reads (traffic rates)")
+    ps.set_defaults(fn=cmd_probe_snmp)
+    pm = sub.add_parser("probe-modbus", help="what the Modbus reader gets from a Cerbo GX")
+    pm.add_argument("host")
+    pm.add_argument("--port", type=int, default=502)
+    pm.add_argument("--mppt-unit", type=int, help="the solar charger's Modbus unit ID (Cerbo: Settings > Services > Modbus TCP)")
+    pm.set_defaults(fn=cmd_probe_modbus)
+    pi = sub.add_parser("probe-influx", help="the Mobius InfluxDB layout (names only, no data values)")
+    pi.add_argument("--url", help="http://<mobius server>:8086 (default: the inventory's mobius.influx_url)")
+    pi.add_argument("--db", help="only this database")
+    pi.add_argument("--inventory")
+    pi.add_argument("--user-ref", help="secrets.env name of an InfluxDB user, if it needs one")
+    pi.add_argument("--password-ref", help="secrets.env name of its password")
+    pi.add_argument("--out", help="also save the layout to this file")
+    pi.set_defaults(fn=cmd_probe_influx)
 
     hp = sub.add_parser("hash-password", help="admin password from stdin -> scrypt hash for secrets.env")
     hp.set_defaults(fn=cmd_hash_password)

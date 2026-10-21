@@ -7,6 +7,18 @@ networkguru.__version__ - release.py refuses to package otherwise).
 """
 
 CHANGES = [
+    ("0.7.0", "2026-10-21", [
+        "Device readers in live mode: the Rajants (SNMP v3), Tachyons and trailer switches (read-only SNMP) and "
+        "the Cerbo GX units (Modbus TCP) now report their own values - uptime and traffic, switch ports and PoE "
+        "watts, battery, solar and load. A device that answers ping but cannot be read shows a Warning with the "
+        "reason (for example a wrong SNMP login).",
+        "The logins go in secrets.env by name; install.sh --secrets asks for each one the inventory uses. A "
+        "reader without its logins is 'not set up' (one note on the dashboard) and the device is still pinged.",
+        "New bring-up commands: probe-snmp, probe-modbus and probe-influx show what each device gives. probe-influx "
+        "lists the Mobius database's names (no data) for the Mobius mapping, which brings the VCU, GNSS (real "
+        "vehicle positions on the map) and VAI values in the next build.",
+        "Devices sheet: a 'Modbus unit' column for the Cerbo's solar charger (charger state and daily yield).",
+    ]),
     ("0.6.0", "2026-10-21", [
         "New Map page (the Map tab): a pin for every site location in its live status colour, the vehicles where "
         "their GNSS last put them, and the 60 GHz links as lines. Hover for the reason, click for the location. "

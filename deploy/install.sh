@@ -293,6 +293,22 @@ if [ ! -f "$SECRETS" ] || [ "$ASK_SECRETS" -eq 1 ]; then
   ask_secret NETWORKGURU_GRAPH_CLIENT_SECRET "Morning report e-mail through Microsoft 365: the Entra app's client secret (Mail.Send). Tenant, app ID and sender go on the Admin page."
   ask_secret NETWORKGURU_SMTP_USER "...or through an SMTP server: the SMTP user (host and port go on the Admin page)."
   ask_secret NETWORKGURU_SMTP_PASSWORD "SMTP password."
+  # Device logins the site's inventory names (`*_ref: NAME`, e.g. the Rajant SNMP v3 user) - the
+  # device readers read them from here. Found with a plain text scan (the host needs no PyYAML).
+  DEVICE_REFS=()
+  if [ -f "$BASE/site/inventory.yaml" ]; then
+    mapfile -t DEVICE_REFS < <(python3 -I - "$BASE/site/inventory.yaml" <<'PY'
+import re, sys
+text = "".join(ln for ln in open(sys.argv[1], encoding="utf-8") if not ln.lstrip().startswith("#"))
+print("\n".join(sorted(set(re.findall(r"\b\w+_ref:\s*['\"]?([A-Z][A-Z0-9_]*)", text)))))
+PY
+)
+  fi
+  for name in "${DEVICE_REFS[@]}"; do
+    [ -n "$name" ] || continue
+    case " ${ORDER[*]} " in *" $name "*) ;; *) ORDER+=("$name") ;; esac
+    ask_secret "$name" "Device login the inventory names: $name (SNMP user / password / community, ...)."
+  done
   TMP="$(umask 077; mktemp "$BASE/secrets/.secrets.XXXXXX")"
   {
     printf '# Network Guru secrets - written by install.sh %s. KEY=VALUE, read by Network Guru itself.\n' "$STAMP"

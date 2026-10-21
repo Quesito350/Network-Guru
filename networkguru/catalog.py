@@ -24,6 +24,7 @@ METRICS: dict[str, MetricSpec] = {
     "ping_loss_pct": MetricSpec("Packet loss", "%", 0),
     "tcp_ms": MetricSpec("TCP connect", "ms", 0),
     "port_up": MetricSpec("Port", "", 0, {1: "Open", 0: "Closed"}),
+    "read_ok": MetricSpec("Device data", "", 0, {1: "Read", 0: "Not read"}),     # labelled via=snmp|modbus|...
     "uptime_s": MetricSpec("Uptime", "s", 0),
     "mobius_radio_rtt_ms": MetricSpec("Mobius ping", "ms", 0),
     # Rajant
@@ -70,7 +71,8 @@ METRICS: dict[str, MetricSpec] = {
     "power_load_w": MetricSpec("Load", "W", 0),
     "power_mppt_state": MetricSpec("Charger", "", 0,
                                    {0: "Off", 2: "Fault", 3: "Bulk", 4: "Absorption", 5: "Float",
-                                    6: "Storage", 7: "Equalize"}),
+                                    6: "Storage", 7: "Equalize", 11: "Other (Hub-1)", 245: "Wake-up",
+                                    252: "External control"}),        # Victron register 775
     "power_yield_today_kwh": MetricSpec("Solar yield today", "kWh", 2),
     # Starlink
     "starlink_state": MetricSpec("Dish state", "", 0, {1: "Connected", 0: "Searching"}),

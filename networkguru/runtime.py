@@ -12,7 +12,8 @@ import httpx
 
 from . import __version__, logbuffer
 from .auth import AdminAuth, hash_password
-from .drivers.reach import icmp_available, reach_pollers
+from .drivers import live_pollers
+from .drivers.reach import icmp_available
 from .events import EventStore
 from .history import History
 from .inventory import load_inventory
@@ -97,10 +98,9 @@ class Runtime:
         else:
             self.events.start_run(time.time(), __version__, "live")
             can_ping, why = icmp_available()
-            pollers, self.pipeline.unchecked = reach_pollers(self.inv, can_ping)
+            pollers, self.pipeline.unchecked, notes = live_pollers(self.inv, can_ping)
             self.pipeline.sweep()            # show "Not checked yet" at once, not after the first sweep
-            self.notes.append("Live mode: ping and port checks only - the device readers (SNMP, Modbus, Mobius) "
-                              "arrive in 0.7.0.")
+            self.notes.extend(notes)
             if not can_ping:
                 self.notes.append(why[0].upper() + why[1:] + ".")
             self.scheduler = Scheduler(self.pipeline, pollers, self.events)

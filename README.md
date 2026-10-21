@@ -119,9 +119,30 @@ python run.py build-inventory ..\sites\devices.xlsx --site mendon --out ..\sites
 - **Live checks** (`NG_MODE=live`, or `install.sh --mode live`):
   - every device with an address is pinged (4 echoes: latency and loss), and its service ports are checked (`checks: ["tcp:18080"]` in the inventory, added by type for the Mobius server, InfluxDB and the GNSS base; Starlink through its `target`)
   - a device that answers nothing for 3 polls is Offline; the existing "Unreachable via" logic works as with the simulator
-  - VCU, GNSS and VAI say "Not checked yet" until the Mobius reader (0.7.0)
+  - the device readers (below) add the devices' own values
   - the site firewall must let the server ping the device networks; when ICMP is filtered, the port checks still count
 - **Report a problem** (header): a signed-in admin downloads one zip with the version, status, the last 7 days of events, recent log lines, the inventory and any errors the page caught. Secrets are never in it. A red dot on the button means the page caught an error.
+
+## Connecting the devices (live mode readers, 0.7.0)
+
+In live mode each device is pinged and its ports checked, and its **reader** asks the device itself for its values. The logins go in `secrets.env` by name (`install.sh --secrets` asks for every name the inventory uses; the test install: `dev-secrets\secrets.env`). They never go in the inventory.
+
+| Devices | Reader | Needs | Login names (secrets.env) |
+|---|---|---|---|
+| Rajant BreadCrumbs | SNMP v3 authPriv (SHA1 / AES128) | the SNMP v3 user on the radios (the V&V change request), with this server as the source | `RAJANT_SNMP_USER`, `RAJANT_SNMP_AUTH`, `RAJANT_SNMP_PRIV` |
+| Tachyon 60 GHz | SNMP v2c, read-only | a read-only community | `TACHYON_SNMP_RO` |
+| Trailer switches | SNMP v2c, read-only (ports up, PoE watts) | the RO community they already have | `SWITCH_SNMP_RO` |
+| Cerbo GX | Modbus TCP (battery, solar, load; charger state and yield with the **Modbus unit** column) | Settings → Services → Modbus TCP → on | none |
+| VCU, GNSS (vehicle positions), VAI | the Mobius InfluxDB | InfluxDB reachable on 8086 (the Mobius team's sign-off), then the mapping from `probe-influx` | none (or a user / password by name) |
+
+- **Firewall:** from the server, UDP 161 (SNMP), TCP 502 (Modbus) and TCP 8086 (InfluxDB), plus ping.
+- **Rajant and Tachyon specific values** (peers, temperature, RSSI, SNR, MCS) come once their vendor MIB files are in `Documents\Network Guru\mibs\`; the standard values (uptime, traffic) work now.
+- **A device that answers ping but not its reader** is a Warning, "Device data (snmp): Not read", with the reason on its page.
+- **Readers without their logins** are "not set up" (one note on the dashboard, no warning on every card); the device is still pinged. Adding the logins needs no restart.
+- **Bring-up commands** (on the test install prefix them with `docker compose exec app`):
+  - `python -m networkguru probe-snmp <ip> --type rajant|tachyon|switch` - every value the reader gets (`--walk <OID>` dumps a subtree)
+  - `python -m networkguru probe-modbus <ip> [--mppt-unit N]`
+  - `python -m networkguru probe-influx --url http://<mobius server>:8086 --out influx-layout.txt` - the database layout, names only (send this file for the Mobius mapping)
 
 ## Things to try
 

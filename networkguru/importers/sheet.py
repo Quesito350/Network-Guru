@@ -20,7 +20,7 @@ SITE_COLS = ["Site", "Name", "Time zone", "Lat", "Lon", "Mobius InfluxDB URL", "
              "Notes"]
 GROUP_COLS = ["Site", "Group", "Kind", "Mobius asset", "Access", "Expected online", "Has VAI", "Lat", "Lon", "Notes"]
 DEVICE_COLS = ["Site", "Group", "Type", "Name", "Model", "Serial", "MAC", "Address", "IP", "Link", "Role",
-               "Install RSSI", "Switch port", "Firmware", "Monitor", "Notes"]
+               "Install RSSI", "Switch port", "Firmware", "Monitor", "Modbus unit", "Notes"]
 KINDS = ["vehicle", "trailer", "cow", "tower", "building", "repeater", "core", "server", "client"]
 LISTS = {"Kind": KINDS, "Type": sorted(TYPES), "Address": ["static", "dhcp"], "Role": ["master", "slave"],
          "Monitor": ["yes", "no"], "Has VAI": ["yes", "no"], "Access": ["rajant", "celona"]}
@@ -37,6 +37,8 @@ README = [
     "Address: static, or dhcp (then give a Serial or MAC so it can be found when its IP changes).",
     "Link / Role / Install RSSI: 60 GHz Tachyon pairs share a Link name; master is the end toward the COW.",
     "Monitor = no: spare or turned-off devices (kept here, not checked).",
+    "Modbus unit (Cerbo GX): the solar charger's unit ID, for its charger state and daily yield - on the Cerbo:",
+    "  Settings > Services > Modbus TCP > Available services. Without it the battery, PV and load values still come.",
     "Vehicles with a Mobius asset name get VCU and GNSS checks (and VAI when Has VAI = yes) automatically.",
     "",
     "Never put passwords, SNMP communities, keys or tokens in this file.",
