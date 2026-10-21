@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from .. import TOOL_NAME, __version__
 from ..catalog import catalog_json
 from ..changelog import as_json as changelog_json
+from ..maptiles import choice as maptile_choice, tiles_for
 from ..model import STATUS_NAMES
 from ..report import as_html, as_text, report_from_runtime
 
@@ -55,6 +56,13 @@ def _nav(r, node_id: str | None) -> dict:
 @router.get("/health")
 async def health(request: Request):
     return rt(request).health()
+
+
+@router.get("/map")
+async def map_settings(request: Request):
+    """The Map page's background (Admin → Map) - the tile URL the browser loads, or none."""
+    choice = rt(request).settings_state.get("map_background")
+    return {"background": maptile_choice(choice), "tiles": tiles_for(choice)}
 
 
 @router.get("/meta")

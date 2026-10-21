@@ -22,6 +22,8 @@ TACHYON_MODEL = "TNA-303X"          # from the post-install material inventory
 # these are only used for a site without a Sites row
 DEFAULT_TZ = "America/Denver"
 DEFAULT_LAT, DEFAULT_LON = 40.76, -111.89      # Salt Lake City
+# ports checked in live mode, by type (the service the device is there for)
+TYPE_CHECKS = {"mobius_server": ["tcp:18080"], "influxdb": ["tcp:8086"], "gnss_base": ["tcp:2101"]}
 # login names per device type - values are typed on the server into secrets.env, never stored here
 TYPE_DEFAULTS = {
     "rajant": {"snmp_version": "3", "snmp_user_ref": "RAJANT_SNMP_USER", "snmp_auth_ref": "RAJANT_SNMP_AUTH",
@@ -82,11 +84,25 @@ def import_rajant(sheet: Sheet, nodes: list[RajantNode], site: str) -> None:
         owned = ("IP", "Firmware", "MAC", "Serial", "Address", "Model")
         if existing:
             sheet.upsert_device({**row, "Group": existing["Group"], "Name": existing["Name"]}, owned=owned)
+            _place(sheet, nsite, existing["Group"], n)
             continue
         kind = classify(n.name, n.address, _infra(sheet, nsite))
         gname = n.name.strip() or n.serial
         sheet.upsert_group(nsite, gname, kind, **({"Access": "rajant"} if kind == "vehicle" else {}))
         sheet.upsert_device({**row, "Group": gname, "Name": f"Rajant {n.platform or 'BreadCrumb'}"}, owned=owned)
+        _place(sheet, nsite, gname, n)
+
+
+def _place(sheet: Sheet, site: str, group: str, n: RajantNode) -> None:
+    """A location's map position from its radio's GPS - only when the sheet has none (a typed one wins).
+    Vehicles get none: they move."""
+    g = sheet.group(site, group)
+    if g is None or g["Kind"].strip().lower() == "vehicle" or g["Lat"] or g["Lon"]:
+        return
+    if n.lat is None or n.lon is None or (abs(n.lat) < 1e-6 and abs(n.lon) < 1e-6):
+        return
+    g["Lat"], g["Lon"] = f"{n.lat:.6f}", f"{n.lon:.6f}"
+    sheet.log.append(f"~ group {site}/{group}: position from {n.serial}")
 
 
 def import_csv(sheet: Sheet, rows: list[dict], site: str) -> None:
@@ -150,6 +166,12 @@ def build_inventory(sheet: Sheet, site: str, name: str | None = None, timezone: 
                 entry["mobius_asset"] = g["Mobius asset"]
         if g["Expected online"]:
             entry["expected_online"] = g["Expected online"]
+        if g["Lat"] or g["Lon"]:
+            where = _position(g["Lat"], g["Lon"])
+            if where:
+                entry["lat"], entry["lon"] = where
+            else:
+                report.append(f"! {g['Group']}: Lat/Lon '{g['Lat']}' / '{g['Lon']}' is not a position - not on the map")
         for d in devices:
             if d["Group"].strip().lower() != g["Group"].strip().lower():
                 continue
@@ -168,6 +190,8 @@ def build_inventory(sheet: Sheet, site: str, name: str | None = None, timezone: 
                     c[key] = d[col]
             if (d["Address"] or "static").lower() == "dhcp":
                 c["address"] = "dhcp"
+            if typ in TYPE_CHECKS and d["IP"]:
+                c["checks"] = list(TYPE_CHECKS[typ])
             if d["Install RSSI"]:
                 try:
                     c["install_rssi"] = float(d["Install RSSI"])
@@ -196,6 +220,14 @@ def build_inventory(sheet: Sheet, site: str, name: str | None = None, timezone: 
                      f"{len(tabs['control_room'])} control-room stations, {n_comp} components "
                      f"({skipped} spare/turned-off devices not monitored)")
     return data, report
+
+
+def _position(lat: str, lon: str) -> tuple[float, float] | None:
+    try:
+        la, lo = float(lat), float(lon)
+    except ValueError:
+        return None
+    return (round(la, 6), round(lo, 6)) if -90 <= la <= 90 and -180 <= lo <= 180 else None
 
 
 def _infra(sheet: Sheet, site: str) -> str:

@@ -38,7 +38,7 @@ export function adminView(root, nav) {
       head.lastChild.remove();
       load();
     } }));
-    body.append(updatesPanel(status.updates), reportPanel(status), secretsPanel(status.secrets), eventsPanel(nav));
+    body.append(updatesPanel(status.updates), reportPanel(status), mapPanel(status), secretsPanel(status.secrets), eventsPanel(nav));
   }
 
   const off = onUpdates(() => { if (status && admin.signedIn) refreshUpdatesPanel(); });
@@ -196,6 +196,32 @@ function reportPanel(status) {
     h("div", { class: "fields" }, field("E-mail to (comma separated)", f.email_to), field("Send e-mail with", via)),
     graphBox, smtpBox,
     h("div", { class: "actions-row" }, save, h("a", { href: "#/report", text: "Preview the report" }), test), msg, testMsg);
+}
+
+const MAP_CHOICES = [
+  ["satellite", "Satellite (Esri World Imagery)"],
+  ["street", "Street map (OpenStreetMap)"],
+  ["none", "None - plain grid, never contacts a map service"],
+];
+
+function mapPanel(st) {
+  const msg = h("div", { class: "form-msg", role: "status" });
+  const current = st.settings.map_background || "satellite";
+  const pick = h("select", { "aria-label": "Map background" },
+    ...MAP_CHOICES.map(([v, label]) => h("option", { value: v, text: label, selected: v === current })));
+  const save = h("button", { class: "btn primary", type: "button", text: "Save", onclick: async () => {
+    save.disabled = true;
+    setText(msg, "");
+    try { await post("/api/admin/settings", { map_background: pick.value }, "PUT"); setText(msg, "Saved - reopen the Map page to see it."); }
+    catch (e) { setText(msg, e.message); }
+    save.disabled = false;
+  } });
+  return h("section", { class: "panel pad" }, h("h2", { text: "Map" }),
+    h("p", { class: "muted", text: "The Map page's background. The viewer's browser loads the map images straight from the provider "
+      + "(the server never does). Without internet it falls back to a plain grid - the pins are placed by GPS either way. "
+      + "Check that ASI's use fits the provider's terms (Esri may need an ArcGIS licence)." }),
+    h("div", { class: "fields" }, h("label", { class: "field" }, h("span", { text: "Background" }), pick)),
+    h("div", { class: "actions-row" }, save, h("a", { href: "#/map", text: "Open the map" })), msg);
 }
 
 function secretsPanel(list) {

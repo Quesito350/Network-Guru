@@ -76,7 +76,7 @@ def test_everything_unknown_says_so(mini_inv):
         st.status = Status.UNKNOWN
     r = build_report(mini_inv, p.state, ev, "live", NOW, TZ)
     assert r.verdict == "no_data" and "no data from any device" in r.subject
-    assert "0.6.0" in as_text(r) and "All clear" not in as_text(r)
+    assert "can reach the device networks" in as_text(r) and "All clear" not in as_text(r)
 
 
 def test_changes_since_yesterday(mini_inv):

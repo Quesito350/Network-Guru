@@ -53,7 +53,7 @@ Write down the result of each step (✓ / ✗ and what you saw).
 3. `docker inspect networkguru-victoriametrics-1 --format '{{.HostConfig.CapDrop}}'` prints `[ALL]`. VictoriaMetrics still writes: after 10 minutes, History shows data.
 4. `docker network inspect networkguru_ng` shows subnet `172.29.250.0/24`.
 5. Neither container mounts the Docker socket: `docker inspect … | grep -c docker.sock` prints `0`.
-6. **Ping as a non-root user inside the container** (needed for the 0.6.0 drivers):
+6. **Ping as a non-root user inside the container** (live mode's ping checks need it):
    ```bash
    docker exec networkguru-app-1 python -c "import socket; socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_ICMP); print('ok')"
    ```
@@ -68,7 +68,7 @@ Write down the result of each step (✓ / ✗ and what you saw).
    - say it is running and healthy
    - keep the history and events
 3. Re-run it with `--port 8090`. The dashboard moves to `:8090`. Then go back to 8080.
-4. Re-run it with `--mode live`. Every device shows Unknown, and the note says the drivers arrive in 0.6.0. Then switch back with `--mode sim`.
+4. Re-run it with `--mode live`. Every device with an address shows its real ping / port status (devices that are switched off go Offline after 3 polls); VCU, GNSS and VAI show "Not checked yet - needs the Mobius reader (0.7.0)". If devices that are up show "no reply to ping", the network filters ICMP - their port checks still count. Then switch back with `--mode sim`.
 5. Run `sudo bash deploy/install.sh --secrets` and press Enter on every prompt. Every value is kept.
 
 ## 4. Admin page

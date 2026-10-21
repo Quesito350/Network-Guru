@@ -180,7 +180,8 @@ def build_report(inv, state: dict, events, mode: str, now: float, tz: ZoneInfo, 
     if total and unknown == total:
         verdict, headline = "no_data", "no data from any device"
         notes.insert(0, "Every device is Unknown: no device data reaches the dashboard"
-                     + (" (real device drivers arrive in 0.6.0)." if mode == "live" else "."))
+                     + (" - check that this server can reach the device networks (live mode pings them and "
+                        "checks their ports)." if mode == "live" else "."))
     elif attention:
         verdict = "problems"
         parts = [f"{crit} critical" if crit else "", f"{warn} warning{'s' if warn != 1 else ''}" if warn else ""]

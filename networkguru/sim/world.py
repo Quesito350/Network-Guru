@@ -151,6 +151,7 @@ class SimWorld:
                 self.client_sched[g.id] = Schedule.parse(g.sim.get("schedule", "Mon-Fri 06:00-18:00"))
         self._t: float | None = None
         self._cache: dict = {}
+        self.route = self._route()
 
     # -- faults injected from the API (sim only) -------------------------
     def add_fault(self, target: str, kind: str, minutes: float, now: float | None = None) -> Fault:
@@ -243,6 +244,37 @@ class SimWorld:
         s = self.seed[gid]
         lap = 1200 + rnd(s, 3) * 900
         return 0.5 + 0.5 * math.sin(2 * math.pi * t / lap + rnd(s, 4) * 6.28)
+
+    def _route(self) -> list[tuple[float, float]]:
+        """The loop vehicles drive: the located infrastructure pins in order around their middle, or
+        a 700 m circle around the site point when fewer than three are located."""
+        pts = [(g.lat, g.lon) for g in self.inv.tab_groups("infrastructure") if g.lat is not None and g.lon is not None]
+        if len(pts) < 3:
+            k = 1 / 111_320
+            pts = [(self.lat + 700 * k * math.sin(a), self.lon + 700 * k * math.cos(a) / math.cos(math.radians(self.lat)))
+                   for a in (i * math.pi / 4 for i in range(8))]
+        cy = sum(p[0] for p in pts) / len(pts)
+        cx = sum(p[1] for p in pts) / len(pts)
+        return sorted(pts, key=lambda p: math.atan2(p[0] - cy, p[1] - cx))
+
+    def veh_pos(self, gid: str, t: float) -> tuple[float, float]:
+        """Where a vehicle is while it drives: once round the loop per lap, each from its own start,
+        a little inside the pins (they drive between the trailers, not through them)."""
+        s, r = self.seed[gid], self.route
+        lap = 1200 + rnd(s, 3) * 900
+        f = (t / lap + rnd(s, 4)) % 1.0
+        seg = [math.dist(r[i], r[(i + 1) % len(r)]) for i in range(len(r))]
+        d = f * sum(seg)
+        i = 0
+        while d > seg[i] and i < len(seg) - 1:
+            d -= seg[i]
+            i += 1
+        a, b = r[i], r[(i + 1) % len(r)]
+        k = d / seg[i] if seg[i] else 0.0
+        lat, lon = a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k
+        cy, cx = sum(p[0] for p in r) / len(r), sum(p[1] for p in r) / len(r)
+        inset = 0.12 + 0.06 * rnd(s, 5)
+        return round(lat + (cy - lat) * inset, 6), round(lon + (cx - lon) * inset, 6)
 
     def veh_bad(self, gid: str, t: float) -> bool:
         def f():
@@ -448,11 +480,12 @@ class SimWorld:
         if multipath and mode == 4:
             mode = 5
         rms = {4: 0.015, 5: 0.16, 2: 0.8}[mode] * (1 + 0.3 * vnoise(s + 1, t, 60))
+        lat, lon = self.veh_pos(gid, t)          # info, not metrics: kept while the vehicle is quiet (parked)
         return self._ok(c, t, {
             "gnss_mode": mode, "gnss_corr_age_s": age,
             "gnss_sats": round(18 + 3 * vnoise(s + 2, t, 1800)),
             "gnss_hdop": 0.75 + 0.15 * vnoise(s + 3, t, 600) + (0.6 if multipath else 0),
-            "gnss_rms_m": rms})
+            "gnss_rms_m": rms}, {"lat": lat, "lon": lon})
 
     def _s_vai(self, c, gid, t, degrade):
         s = self.seed[c.id]

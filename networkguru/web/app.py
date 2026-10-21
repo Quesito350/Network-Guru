@@ -10,13 +10,20 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import TOOL_NAME, __version__
+from ..maptiles import img_origin
 from ..report import as_html, report_from_runtime
 from ..runtime import Runtime
 from . import admin, api, ws
 
 STATIC = Path(__file__).with_name("static")
-CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:{tiles}; "
        "connect-src 'self' ws: wss:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'")
+
+
+def csp(map_background) -> str:
+    """The page policy; img-src also lets in the chosen map provider (Admin → Map), and nothing with None."""
+    origin = img_origin(map_background)
+    return CSP.format(tiles=f" {origin}" if origin else "")
 # The report preview is the e-mail's own HTML (inline styles only), shown in a sandboxed frame.
 PREVIEW_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'; base-uri 'none'"
 
@@ -53,7 +60,7 @@ def create_app(settings) -> FastAPI:
     @app.middleware("http")
     async def headers(request: Request, call_next):
         resp = await call_next(request)
-        resp.headers.setdefault("Content-Security-Policy", CSP)
+        resp.headers.setdefault("Content-Security-Policy", csp(rt.settings_state.get("map_background")))
         resp.headers["X-Content-Type-Options"] = "nosniff"
         resp.headers["Referrer-Policy"] = "no-referrer"
         path = request.url.path

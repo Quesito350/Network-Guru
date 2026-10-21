@@ -28,6 +28,7 @@ DEFAULTS: dict[str, Any] = {
     "smtp_port": 587,
     "smtp_security": "starttls",     # starttls | ssl | none (none = relay, no sign-in)
     "dashboard_url": "",
+    "map_background": "satellite",   # satellite | street | none (maptiles.py)
 }
 _EMAIL = re.compile(r"^[^@\s,;<>\"]+@[^@\s,;<>\"]+\.[^@\s,;<>\"]+$")
 _HOST = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
@@ -90,6 +91,10 @@ def validate(patch: dict[str, Any]) -> dict[str, Any]:
             if v and not _GUID.match(v):
                 raise ValueError(f"{key}: an ID like 00000000-0000-0000-0000-000000000000")
             out[key] = v
+        elif key == "map_background":
+            if value not in ("satellite", "street", "none"):
+                raise ValueError("map_background: satellite, street or none")
+            out[key] = value
         elif key == "dashboard_url":
             v = str(value or "").strip()
             if v and not re.match(r"^https?://[^\s<>\"]+$", v):

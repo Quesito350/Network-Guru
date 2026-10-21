@@ -52,7 +52,8 @@ NG_PUBLIC_URL=http://<PC-IP>:8080/
 ```
 
 - `.env` holds no secrets.
-- `NG_TAG` empty means the newest version. Set a version (for example `0.5.4`) to stay on it.
+- `NG_TAG` empty means the newest version. Set a version (for example `0.6.0`) to stay on it.
+- `NG_MODE=live` checks the **real devices** with ping and their ports (then `docker compose up -d`). The site firewall must let this PC ping the device networks; if ping is blocked, the port checks still count. VCU, GNSS and VAI stay Unknown until the Mobius reader (0.7.0).
 - If Way B is installed and running on this PC, either stop it (see *Old installs on this PC* below) or set `NG_PORT=8081`.
 
 ### A4. Start it
@@ -261,7 +262,7 @@ Checks that are not meaningful on Windows: the `/var/lib/docker` free-space chec
 ### Done when
 
 - `docker ps` shows `networkguru-app-1` (healthy) and `networkguru-victoriametrics-1`.
-- The dashboard opens from a second PC at `http://<PC-IP>:8080`, with the Mendon layout ("Simulated data" until the 0.6.0 drivers).
+- The dashboard opens from a second PC at `http://<PC-IP>:8080`, with the Mendon layout ("Simulated data" in sim mode).
 - **Admin** sign-in works.
 
 ### Stop or remove

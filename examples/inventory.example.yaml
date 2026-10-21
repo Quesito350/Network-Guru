@@ -55,12 +55,14 @@ control_room:
     kind: client
     components:
       - {id: field-laptop-pc, type: mobius_client, name: Field laptop, host: 10.200.1.15, mobius_machine_id: FIELD-LT-1}
-    sim: {schedule: "Tue-Thu 08:00-15:00", user: cjeppesen}
+    sim: {schedule: "Tue-Thu 08:00-15:00", user: ops1}
 
 infrastructure:
   - id: core
     name: Network core (ASI building)
     kind: core
+    lat: 40.7602
+    lon: -111.8912
     devices:
       - {id: core-switch, type: unifi, name: Core switch, model: USW-Pro-24-PoE, host: 10.200.2.10}
       - {id: core-starlink, type: starlink, name: Starlink (site internet), target: "10.200.2.11:9200"}
@@ -69,25 +71,33 @@ infrastructure:
   - id: bldg-north
     name: ASI Building North
     kind: building
+    lat: 40.7618
+    lon: -111.8906
     devices:
       - {id: bldg-north-bc, type: rajant, name: Rajant FE1, model: FE1-2255X, host: 10.200.2.14}
       - {id: bldg-north-celona, type: celona_ap, name: Celona AP, host: 10.200.2.15}
-      - {id: bldg-north-60g, type: tachyon, name: Tachyon to Trailer 46, model: TNA-303L, host: 10.200.2.16, sim: {rssi: -49}}
+      - {id: bldg-north-60g, type: tachyon, name: Tachyon to Trailer 46, model: TNA-303L, host: 10.200.2.16, link: BN-T46, role: master, sim: {rssi: -49}}
   - id: bldg-south
     name: ASI Building South
     kind: building
+    lat: 40.7586
+    lon: -111.8902
     devices:
       - {id: bldg-south-bc, type: rajant, name: Rajant FE1, model: FE1-2255X, host: 10.200.2.17}
-      - {id: bldg-south-am, type: airmax, name: airMAX to Trailer 48, model: airFiber 5XHD, host: 10.200.2.18, sim: {signal: -57}}
+      - {id: bldg-south-am, type: airmax, name: airMAX to Trailer 48, model: airFiber 5XHD, host: 10.200.2.18, link: BS-T48, sim: {signal: -57}}
   - id: dirt-track
     name: Dirt Track tower
     kind: tower
+    lat: 40.7571
+    lon: -111.8838
     devices:
       - {id: dirt-track-bc, type: rajant, name: Rajant FE1, model: FE1-2255X, host: 10.200.2.19}
       - {id: dirt-track-celona, type: celona_ap, name: Celona AP, host: 10.200.2.20}
   - id: south-field
     name: South field repeater
     kind: repeater
+    lat: 40.7548
+    lon: -111.893
     devices:
       - {id: south-field-bc, type: rajant, name: Rajant LX5, model: LX5-2295C, host: 10.200.2.21, sim: {peers: 3}}
       - {id: south-field-gx, type: victron_cerbo, name: Cerbo GX, host: 10.200.2.22}
@@ -95,14 +105,18 @@ infrastructure:
   - id: trailer-46
     name: Trailer 46
     kind: trailer
+    lat: 40.7644
+    lon: -111.8858
     devices:
       - {id: t46-bc, type: rajant, name: Rajant FE1, model: FE1-2255X, host: 10.200.3.10}
       - {id: t46-gx, type: victron_cerbo, name: Cerbo GX, host: 10.200.3.11}
-      - {id: t46-60g, type: tachyon, name: Tachyon to Building North, model: TNA-303L, host: 10.200.3.12, sim: {rssi: -51}}
+      - {id: t46-60g, type: tachyon, name: Tachyon to Building North, model: TNA-303L, host: 10.200.3.12, link: BN-T46, role: slave, sim: {rssi: -51}}
     sim: {battery_wh: 9600, pv_peak_w: 720}
   - id: trailer-47
     name: Trailer 47
     kind: trailer
+    lat: 40.7655
+    lon: -111.8931
     devices:
       - {id: t47-bc, type: rajant, name: Rajant FE1, model: FE1-2255X, host: 10.200.3.13}
       - {id: t47-gx, type: victron_cerbo, name: Cerbo GX, host: 10.200.3.14}
@@ -111,14 +125,18 @@ infrastructure:
   - id: trailer-48
     name: Trailer 48
     kind: trailer
+    lat: 40.756
+    lon: -111.8968
     devices:
       - {id: t48-bc, type: rajant, name: Rajant FE1, model: FE1-2255X, host: 10.200.3.15}
       - {id: t48-gx, type: victron_cerbo, name: Cerbo GX, host: 10.200.3.16}
-      - {id: t48-am, type: airmax, name: airMAX to Building South, model: airFiber 5XHD, host: 10.200.3.17, sim: {signal: -61}}
+      - {id: t48-am, type: airmax, name: airMAX to Building South, model: airFiber 5XHD, host: 10.200.3.17, link: BS-T48, sim: {signal: -61}}
     sim: {battery_wh: 9600, battery_health: 0.22, pv_peak_w: 320, extra_load_w: 30}   # worn battery, dirty panel
   - id: trailer-49
     name: Trailer 49
     kind: trailer
+    lat: 40.7631
+    lon: -111.8796
     devices:
       - {id: t49-bc, type: rajant, name: Rajant FE1, model: FE1-2255X, host: 10.200.3.18}
       - {id: t49-gx, type: victron_cerbo, name: Cerbo GX, host: 10.200.3.19}

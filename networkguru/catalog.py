@@ -23,6 +23,7 @@ METRICS: dict[str, MetricSpec] = {
     "ping_rtt_ms": MetricSpec("Ping RTT", "ms", 0),
     "ping_loss_pct": MetricSpec("Packet loss", "%", 0),
     "tcp_ms": MetricSpec("TCP connect", "ms", 0),
+    "port_up": MetricSpec("Port", "", 0, {1: "Open", 0: "Closed"}),
     "uptime_s": MetricSpec("Uptime", "s", 0),
     "mobius_radio_rtt_ms": MetricSpec("Mobius ping", "ms", 0),
     # Rajant

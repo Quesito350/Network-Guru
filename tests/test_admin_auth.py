@@ -4,6 +4,8 @@ checks, non-admins refused, and secrets shown by name only."""
 import asyncio
 import importlib.util
 import json
+import re
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -188,6 +190,58 @@ def test_developer_install_session_and_server_rules(tmp_path):
         st = c.get("/api/admin/status").json()["updates"]
         assert st["deploy"] == "compose" and st["can_install"] is False
     assert app.state.rt.docker
+
+
+def test_problem_report_is_admin_only_and_never_holds_secrets(client, monkeypatch):
+    import io
+    import logging
+    import zipfile
+    planted = "Planted-S3cret-value-42"
+    monkeypatch.setenv("NETWORKGURU_SMTP_PASSWORD", planted)
+    body = {"note": f"it broke at 9, the password was {planted}",
+            "browser": {"url": "http://testserver/#/map", "agent": "pytest", "screen": "1x1",
+                        "errors": [{"message": "TypeError: x is undefined", "stack": "at map.js:12"}]}}
+    client.cookies.clear()
+    assert client.post("/api/admin/problem-report", json=body, headers=HDR).status_code == 401
+    signed_in(client)
+    assert client.post("/api/admin/problem-report", json=body).status_code == 403          # no X-Requested-With
+    logging.getLogger("networkguru").warning("talking to the mail server with %s", planted)
+    r = client.post("/api/admin/problem-report", json=body, headers=HDR)
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
+    assert re.match(r'attachment; filename="networkguru-report-mendon-\d{8}-\d{4}\.zip"', r.headers["content-disposition"])
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    assert set(z.namelist()) == {"report.txt", "status.json", "events.json", "log.txt", "browser-errors.json",
+                                 "updates.json", "morning-report.json", "inventory.yaml"}
+    everything = "\n".join(z.read(n).decode("utf-8") for n in z.namelist())
+    assert planted not in everything and "scrypt:" not in everything and PW not in everything
+    report = z.read("report.txt").decode("utf-8")
+    assert "it broke at 9" in report and "SMTP password: set" in report and "Signed in" not in report
+    assert "TypeError: x is undefined" in z.read("browser-errors.json").decode("utf-8")
+    assert "talking to the mail server with *****" in z.read("log.txt").decode("utf-8")
+    assert "mobius-svc" in json.loads(z.read("status.json"))["nodes"]
+    st = client.get("/api/admin/status").json()
+    rt_ = client.app.state.rt
+    assert any(e["reason"] == "Problem report downloaded" and e["actor"] == "Casey"
+               for e in rt_.events.system_events(0, time.time() + 1))
+    assert st["name"] == "Casey"
+
+
+def test_map_background_setting_and_page_policy(client):
+    from networkguru.web.app import csp
+    assert "https://server.arcgisonline.com" in csp("satellite") and "https://tile.openstreetmap.org" in csp("street")
+    img = next(p for p in csp("none").split(";") if p.strip().startswith("img-src"))
+    assert img.strip() == "img-src 'self' data:"                                         # None: no outside host
+    signed_in(client)
+    assert client.put("/api/admin/settings", json={"map_background": "moon"}, headers=HDR).status_code == 400
+    for choice, host in (("street", "tile.openstreetmap.org"), ("none", None), ("satellite", "server.arcgisonline.com")):
+        assert client.put("/api/admin/settings", json={"map_background": choice}, headers=HDR).status_code == 200
+        m = client.get("/api/map").json()
+        page = client.get("/").headers["content-security-policy"]
+        assert m["background"] == choice
+        if host:
+            assert host in m["tiles"]["url"] and host in page and m["tiles"]["attribution"]
+        else:
+            assert m["tiles"] is None and "https://" not in page
 
 
 def test_no_admin_password_means_admin_is_off(tmp_path):

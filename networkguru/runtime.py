@@ -10,8 +10,9 @@ from pathlib import Path
 
 import httpx
 
-from . import __version__
+from . import __version__, logbuffer
 from .auth import AdminAuth, hash_password
+from .drivers.reach import icmp_available, reach_pollers
 from .events import EventStore
 from .history import History
 from .inventory import load_inventory
@@ -43,6 +44,7 @@ class Runtime:
         self.world: SimWorld | None = None
         self.scheduler: Scheduler | None = None
         self.progress = Progress()
+        logbuffer.install()                  # the last log lines, for the problem report
         self.notes: list[str] = []
         self.tasks: list[asyncio.Task] = []
         self.started = time.time()
@@ -94,9 +96,14 @@ class Runtime:
             self.tasks.append(asyncio.create_task(self._sim_main(start)))
         else:
             self.events.start_run(time.time(), __version__, "live")
-            self.notes.append("No device drivers are installed in this version yet (they arrive in 0.6.0) - "
-                              "every device shows Unknown.")
-            self.scheduler = Scheduler(self.pipeline, [], self.events)
+            can_ping, why = icmp_available()
+            pollers, self.pipeline.unchecked = reach_pollers(self.inv, can_ping)
+            self.pipeline.sweep()            # show "Not checked yet" at once, not after the first sweep
+            self.notes.append("Live mode: ping and port checks only - the device readers (SNMP, Modbus, Mobius) "
+                              "arrive in 0.7.0.")
+            if not can_ping:
+                self.notes.append(why[0].upper() + why[1:] + ".")
+            self.scheduler = Scheduler(self.pipeline, pollers, self.events)
             self.tasks.append(asyncio.create_task(self.scheduler.run()))
 
     async def _open_tsdb(self):

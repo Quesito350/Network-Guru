@@ -20,6 +20,7 @@ metrics:
   ping_loss_pct:          {warn: 5, crit: 20, for: 30s}
   mobius_radio_rtt_ms:    {warn: 250, crit: 500}
   tcp_ms:                 {warn: 500, crit: 2000}
+  port_up:                {zero: warning}          # a port listed in `checks` that does not open
 
   # ASI VCU - Mobius CommunicationTelemetryItems bands (Degraded 250 ms, VeryPoor 1000 ms)
   vcu_communicating:      {zero: offline}

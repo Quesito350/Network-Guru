@@ -514,7 +514,68 @@ pre.report-text { max-height: none; }
 .seg.light button[aria-pressed="true"] { background: var(--asi-blue); color: #fff; }
 .modal .actions-row { margin-top: 14px; }
 
+/* ---------- map ---------- */
+.tabs .tab-map { margin-left: auto; }
+.tabs .tab-map svg { width: 14px; height: 14px; fill: currentColor; vertical-align: -2px; margin-right: 5px; }
+.map-layout { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; align-items: start; }
+.map-holder { position: relative; min-width: 0; }
+.map { position: relative; height: min(72vh, 760px); min-height: 380px; overflow: hidden; border-radius: 10px;
+  border: 1px solid var(--border); background: #1d2a33; touch-action: none; cursor: grab; outline: none; user-select: none; }
+.map:focus-visible { box-shadow: 0 0 0 3px var(--asi-blue); }
+.map.dragging { cursor: grabbing; }
+.map.plain { background-color: var(--card-2);
+  background-image: linear-gradient(var(--hair) 1px, transparent 1px), linear-gradient(90deg, var(--hair) 1px, transparent 1px);
+  background-size: 48px 48px; }
+.map-tiles, .map-pins, .map-lines { position: absolute; inset: 0; }
+.map-tiles img { position: absolute; left: 0; top: 0; width: 256px; height: 256px; pointer-events: none; }
+.map-lines { pointer-events: none; overflow: visible; }
+.map-link { stroke-width: 3; stroke: var(--s-unknown); stroke-linecap: round; }
+.map-link.s-ok { stroke: var(--s-ok); }
+.map-link.s-warning { stroke: var(--s-warning); }
+.map-link.s-critical { stroke: var(--s-critical); }
+.map-link.s-offline { stroke: var(--s-offline); }
+.map-link.down { stroke-dasharray: 6 5; }
+.pin { position: absolute; left: 0; top: 0; width: 28px; height: 28px; margin: -14px 0 0 -14px; padding: 0;
+  border-radius: 50%; border: 2px solid #fff; background: var(--s-unknown); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  cursor: pointer; display: grid; place-items: center; }
+.pin svg { width: 16px; height: 16px; fill: #fff; }
+.pin.s-ok { background: var(--s-ok); }
+.pin.s-warning { background: var(--s-warning); }
+.pin.s-warning svg { fill: #111; }
+.pin.s-critical { background: var(--s-critical); }
+.pin.s-offline { background: var(--s-offline); }
+.pin.small { width: 20px; height: 20px; margin: -10px 0 0 -10px; border-width: 1.5px; }
+.pin.small svg { width: 12px; height: 12px; }
+.pin:focus-visible { outline: 3px solid var(--asi-blue); outline-offset: 2px; }
+.pin-label { position: absolute; left: 50%; top: 100%; transform: translateX(-50%); margin-top: 3px; white-space: nowrap;
+  font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 0 3px #000, 0 0 2px #000; pointer-events: none; }
+.pin.small .pin-label { font-weight: 500; }
+.map.plain .pin-label { color: var(--ink); text-shadow: 0 0 3px var(--card-2), 0 0 2px var(--card-2); }
+.map-controls { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 4px; }
+.map-controls .btn { width: 32px; height: 32px; padding: 0; font-size: 18px; line-height: 1; }
+.map-scale { position: absolute; left: 10px; bottom: 10px; font-size: 11px; color: #fff; text-shadow: 0 0 3px #000; pointer-events: none; }
+.map-scale span { display: block; height: 6px; border: 2px solid #fff; border-top: 0; margin-bottom: 2px; }
+.map.plain .map-scale { color: var(--ink); text-shadow: none; }
+.map.plain .map-scale span { border-color: var(--ink); }
+.map-attrib { position: absolute; right: 6px; bottom: 4px; font-size: 10px; padding: 1px 5px; border-radius: 3px;
+  background: rgba(255, 255, 255, 0.78); color: #222; pointer-events: none; }
+.map-attrib:empty, .map.plain .map-attrib { display: none; }
+.map-buttons { margin-top: 8px; display: flex; gap: 8px; }
+.map-note { margin: 0 0 10px; padding: 8px 12px; border-radius: 8px; background: var(--s-unknown-tint); font-size: 13px; }
+.map-side h2 { font-size: 14px; margin: 14px 0 6px; }
+.map-side h2:first-child { margin-top: 0; }
+.map-side ul.plain li { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 13px; }
+
+/* ---------- problem report ---------- */
+.hbtn.report { position: relative; }
+.hbtn .err-dot { position: absolute; top: 3px; right: 3px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--s-critical); box-shadow: 0 0 0 2px var(--asi-navy); }
+textarea.wide { width: 100%; min-height: 90px; font: inherit; padding: 8px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--card); color: var(--ink); box-sizing: border-box; }
+
 @media (max-width: 1060px) {
+  .map-layout { grid-template-columns: 1fr; }
+  .map { height: 62vh; }
   .conn .txt { display: none; }
   .brand .site { display: none; }
 }

@@ -1,4 +1,5 @@
-"""Admin endpoints: sign-in, update approval / upload, report settings and test sends.
+"""Admin endpoints: sign-in, update approval / upload, report settings and test sends, and the
+problem report (Report a problem).
 
 Every change needs a signed-in admin (session cookie: HttpOnly, SameSite=Strict) AND the header
 X-Requested-With: networkguru, which a page on another site cannot send - with a same-origin
@@ -14,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
 from ..auth import COOKIE, HASH_ENV, MAX_AGE_S, Session
+from .. import logbuffer, problem_report
 from ..config import secret
 from ..github import UpdateError
 from ..notify import GRAPH_ENV, SMTP_PASS_ENV, SMTP_USER_ENV, TEAMS_ENV
@@ -100,13 +102,32 @@ async def logout(request: Request, response: Response):
     return {"signed_in": False}
 
 
+def secret_list(r) -> list[dict]:
+    """Which secrets are set - names only, never values."""
+    return [{"name": n, "label": label, "set": bool(secret(n)) or (n == HASH_ENV and r.auth.configured)}
+            for n, label in SECRET_NAMES]
+
+
 @router.get("/status")
 async def status(request: Request, who: Session = Depends(require_admin)):
     r = rt(request)
     return {"name": who.name, "updates": r.updates.public_status(), "report": r.reports.public_status(),
-            "settings": r.settings_state.data,
-            "secrets": [{"name": n, "label": label, "set": bool(secret(n)) or (n == HASH_ENV and r.auth.configured)}
-                        for n, label in SECRET_NAMES]}
+            "settings": r.settings_state.data, "secrets": secret_list(r)}
+
+
+# -- Report a problem ------------------------------------------------------------
+class ProblemIn(BaseModel):
+    note: str = ""
+    browser: dict = {}
+
+
+@router.post("/problem-report")
+async def problem_report_zip(request: Request, body: ProblemIn, who: Session = Depends(require_admin)):
+    r = rt(request)
+    name, data = problem_report.build(r, who.name, body.note, body.browser, secret_list(r), logbuffer.install().text())
+    _event(request, "Problem report downloaded", 0, who.name)
+    return Response(content=data, media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 # -- updates -------------------------------------------------------------------

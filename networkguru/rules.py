@@ -159,6 +159,8 @@ class RuleSet:
     def _level(self, m: Metric, rule: dict, mm: _MetricMemory, ts: float) -> tuple[Status, str]:
         spec = metric_spec(m.name)
         label = spec.label
+        if "port" in m.labels:                     # "Port 2101: Closed"
+            label = f"{label} {m.labels['port']}"
         v = m.value
         # state metrics
         if "zero" in rule and v == 0:

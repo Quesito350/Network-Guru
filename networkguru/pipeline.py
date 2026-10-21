@@ -80,6 +80,7 @@ class Pipeline:
                 self.dependents.setdefault(c.depends_on, set()).add(inv.comp_group[c.id])
         self.site_labels = {"site": inv.site.id}
         self.pending_points: list = []
+        self.unchecked: dict[str, str] = {}      # live mode: comp id -> why no driver checks it yet
 
     # ------------------------------------------------------------------
     def ingest(self, results: list[CompResult], now: float | None = None, fast: bool = False) -> None:
@@ -216,7 +217,7 @@ class Pipeline:
         if st.last_poll is None:
             if c.address == "dhcp" and not c.host:
                 return Status.UNKNOWN, ["No address yet (DHCP)"], False
-            return Status.UNKNOWN, ["No data yet"], False
+            return Status.UNKNOWN, [self.unchecked.get(c.id, "No data yet")], False
         interval = type_spec(c.type).interval
         if now - st.last_poll > self.rules.stale_after * interval:
             return Status.UNKNOWN, [f"No data since {_ago(now - st.last_poll)}"], False

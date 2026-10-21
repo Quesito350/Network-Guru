@@ -1,6 +1,6 @@
 # Network Guru: architecture
 
-Current version: **0.5.5** (2026-10-21). Source: github.com/Quesito350/Network-Guru (public since 0.5.3). Bump `networkguru/__init__.py` `__version__` and add a `networkguru/changelog.py` entry with every change. Update this file and REQUIREMENTS.md every version.
+Current version: **0.6.0** (2026-10-21). Source: github.com/Quesito350/Network-Guru (public since 0.5.3). Bump `networkguru/__init__.py` `__version__` and add a `networkguru/changelog.py` entry with every change. Update this file and REQUIREMENTS.md every version.
 
 ## What it is
 
@@ -76,7 +76,9 @@ browser ──► REST /api/... (history charts, availability, path, events) ─
 | `runtime.py` | wires everything: chooses the store, starts backfill + scheduler (sim) or the collector (live), housekeeping |
 | `sim/noise.py`, `sim/world.py`, `sim/backfill.py` | deterministic simulator and the 30-day fast-forward through the real pipeline |
 | `web/app.py`, `web/api.py`, `web/ws.py` | FastAPI app, REST endpoints, WebSocket (snapshot, then 1 s deltas) |
-| `web/static/` | `index.html`, `css/app.css`, `js/app.js` (routing, header, drawer, modals), `js/views/*`, `js/widgets/*` (chart, path, small) |
+| `web/static/` | `index.html`, `css/app.css`, `js/app.js` (routing, header, drawer, modals), `js/views/*` (incl. `map.js`), `js/widgets/*` (chart, path, small, `slippy.js` map), `js/problem.js` (Report a problem, caught page errors) |
+| `drivers/reach.py` | live mode: ping (unprivileged ICMP socket on Linux, `IcmpSendEcho` on Windows) and TCP port checks, one poller per component |
+| `maptiles.py`, `problem_report.py`, `logbuffer.py` | map backgrounds and their CSP origin; the problem-report zip; the last 2000 log lines in memory |
 
 ## Status rules (pipeline)
 
@@ -429,15 +431,30 @@ Ranges are capped at 32 days.
   - System events
   - light and dark themes, phone width
 
+## Live checks, map and problem report (0.6.0)
+
+- **`drivers/reach.py`** (standard library): one `ReachPoller` per component that has a `host` (pinged when its type is pingable) or ports (`checks: ["tcp:PORT"]`, a `target: host:port`).
+  - Ping: 4 echoes 0.2 s apart. Linux uses an unprivileged ICMP datagram socket (the `ping_group_range` sysctl both compose files set, user 10001, no capabilities); Windows uses `IcmpSendEcho` from iphlpapi in a thread. The image workflow's smoke test pings inside the locked-down container.
+  - Ports: `tcp_ms` (connect time) and `port_up` (rule `zero: warning`); a Mobius server's port is `mobius_up` (`zero: critical`). A refused port counts as the device answering.
+  - Reachable when any ping reply or port answers; when every ping is lost but a port answers, the ping numbers are left out (ICMP filtered) instead of showing 100 % loss.
+  - Components with nothing to check get a reason through `Pipeline.unchecked` ("Not checked yet - needs the Mobius reader (0.7.0)"). Without ICMP permission there is one note and only port checks.
+  - `build_inventory` adds `checks` by type (`TYPE_CHECKS`: Mobius server 18080, InfluxDB 8086, GNSS base 2101).
+- **Map:** groups carry `lat`/`lon` (Groups sheet Lat / Lon, filled by `import_rajant` from the snapshot GPS for non-vehicles, only when empty; validated by `build_inventory`; sent by `public_tree`).
+  - Vehicles: their GNSS component's `info.lat/lon` (info, not metrics, so a quiet vehicle keeps its last position). The simulator drives them round the located pins (`SimWorld.veh_pos`); the Mobius reader will supply real ones.
+  - `js/widgets/slippy.js`: Web Mercator, 256-px tiles, drag/wheel/keys, scale bar, plain-grid fallback after the first tiles fail. `js/views/map.js`: status pins by kind, link lines between `partner` components, a side list of what has no position.
+  - Background: `map_background` setting (satellite / street / none, `maptiles.py`). The CSP `img-src` gets only that provider's origin (`web/app.py csp()`); tiles are loaded by the browser, never the server.
+- **Report a problem:** `POST /api/admin/problem-report` (admin + same origin) returns a zip built in memory by `problem_report.build`: report.txt, status.json, events.json (7 days), log.txt (`logbuffer`), browser-errors.json (from `js/problem.js`), updates.json, morning-report.json, inventory.yaml. Every text goes through `config.mask()`; secrets.env, hashes and session tokens are never read into it. Downloading is an admin event.
+
 ## Roadmap
 
 | Ver | What | Verify where |
 |---|---|---|
 | 0.5.0 ✓ | Docker install + **daily update check with admin approval** + **morning report** (details below). Built 2026-10-15; the hardware test (`deploy/HARDWARE_TEST.md`) is still to do | site VM |
-| 0.6.0 | real drivers 1 (details below) | Mendon LAN |
-| 0.7.0 | real drivers 2: Celona Orchestrator, Starlink gRPC, airMAX SNMP, UniFi API, Westermo SNMP, windows_exporter; address lookups for DHCP (UniFi clients, MikroTik leases/ARP, Rajant ARP over SNMP, MNDP, DNS) | each device type |
+| 0.6.0 ✓ | ping/TCP live checks, the site map, Report a problem (details in *Live checks, map and problem report*) | test PC / Mendon LAN |
+| 0.7.0 | the device readers (details below) | Mendon LAN |
+| 0.8.0 | readers 2: Celona Orchestrator, Starlink gRPC, airMAX SNMP, UniFi API, Westermo SNMP, windows_exporter; address lookups for DHCP (UniFi clients, MikroTik leases/ARP, Rajant ARP over SNMP, MNDP, DNS) | each device type |
 | 1.0.0 | thresholds reviewed with ops, optional view password, HTTPS (admin sign-in is plain HTTP on the LAN in 0.5.0), second-site offline install | site |
-| later | Rajant BCAPI (live "via tower X"), Helm direct (`WAN:21443`), 30-day backfill from Mobius Influx, map view from the KMZ (tracks + trailers), control-room kiosk mode | |
+| later | Rajant BCAPI (live "via tower X"), Helm direct (`WAN:21443`), 30-day backfill from Mobius Influx, vehicle tracks on the map (from history), control-room kiosk mode | |
 
 **0.5.0 in more detail** (as planned; built as described in *Site server*, *Updates*, *Admin sign-in* and *Morning report* above):
 - **Docker install:**
@@ -453,8 +470,7 @@ Ranges are capped at 32 days.
   - always sent, even when all green, so a missing report means the tool is broken
   - red and yellow first, then what changed since yesterday
 
-**0.6.0 in more detail:**
-- ping/TCP with the parent re-check
+**0.7.0 in more detail** (the device readers; ping/TCP shipped in 0.6.0):
 - **Rajant SNMP v3 authPriv** (SHA1/AES128, one user for all radios; v1/2c is locked to "public")
 - **Tachyon read-only SNMP** (TACHYON-MIB), not the REST login, which can change settings
 - trailer switch SNMP: port state and PoE watts
@@ -481,6 +497,7 @@ Ranges are capped at 32 days.
 
 ## Version history
 
+- **0.6.0** (2026-10-21): live mode pings every device and checks its service ports (`drivers/reach.py`); the Map page (`slippy.js`, `map.js`, Lat / Lon on the Groups sheet, `map_background` + CSP); Report a problem (admin zip, page error capture, log buffer). Device readers moved to 0.7.0.
 - **0.5.5** (2026-10-21): release.py starts the image workflow itself and waits for it (`build_image`), so each release also publishes the test-install image; the workflow is `workflow_dispatch` only.
 - **0.5.4** (2026-10-21): the test-install image on GitHub's registry (`ghcr.io/quesito350/network-guru`), built and smoke-tested by a workflow on each tag. The root `compose.yaml` pulls it (a `site` folder replaces `NG_INVENTORY`, demo without one); `compose.build.yaml` builds from a checkout. `WINDOWS_TEST.md` Way A uses the image, with help for old installs and "git is not recognized".
 - **0.5.3** (2026-10-20): public repository (fresh history; 0.4.0-0.5.2 in the private archive). Site details out of the code: `SITE_DEFAULTS` and the two subnet rules became the Sites sheet of devices.xlsx. Made-up addresses (10.200/16), serials, MACs and a neutral location (Salt Lake City) in the example, tests and docs, plus a test that allows only made-up private ranges. The update check and download work without a GitHub token.

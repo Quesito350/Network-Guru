@@ -13,7 +13,7 @@
 #   --images DIR       folder from tools/fetch_images.py (SHA256SUMS + .tar) - needed offline
 #   --inventory FILE   the site's inventory.yaml (Documents\Network Guru\sites\<site>\ on the PC)
 #   --rules FILE       optional site rules.yaml (threshold overrides)
-#   --mode sim|live    sim = simulated data on the real layout (default until the 0.6.0 drivers)
+#   --mode sim|live    sim = simulated data on the real layout (default); live = ping and port checks
 #   --port N           dashboard port (default 8080)
 #   --subnet CIDR      Docker network for the two containers (default 172.29.250.0/24)
 #   --url URL          dashboard address used in the morning report links

@@ -7,6 +7,20 @@ networkguru.__version__ - release.py refuses to package otherwise).
 """
 
 CHANGES = [
+    ("0.6.0", "2026-10-21", [
+        "New Map page (the Map tab): a pin for every site location in its live status colour, the vehicles where "
+        "their GNSS last put them, and the 60 GHz links as lines. Hover for the reason, click for the location. "
+        "Satellite images when the PC has internet, a plain grid without (Admin → Map chooses satellite, street "
+        "map or none).",
+        "Positions come from new Lat / Lon columns on the Groups sheet of devices.xlsx; importing the Rajant "
+        "snapshot fills them from the radios' GPS (a typed position always wins).",
+        "First real device checks: in live mode every device with an address is pinged and its service ports are "
+        "checked, so the cards show real up/down and latency. The device readers (SNMP, Modbus, Mobius) follow in "
+        "0.7.0; until then VCU, GNSS and VAI say 'Not checked yet'.",
+        "Report a problem (header): a signed-in admin downloads one zip with the version, status, the last 7 days "
+        "of events, recent log lines, the inventory and any errors the page caught - never passwords or tokens. "
+        "The button shows a red dot when the page has caught an error.",
+    ]),
     ("0.5.5", "2026-10-21", [
         "Every release now also updates the test-install image on GitHub by itself: build.bat starts the image "
         "build, waits for it and says when ghcr.io/quesito350/network-guru has the new version (and that anyone "

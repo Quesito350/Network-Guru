@@ -247,6 +247,67 @@ def test_devices_csv_and_mobius_vehicle(tmp_path):
     assert {c.type for c in inv.groups["truck-9"].components} == {"rajant", "vcu", "gnss"}
 
 
+def test_snapshot_gps_places_locations_on_the_map(tmp_path, ipam_file):
+    """The Rajant snapshot's GPS fills a location's Lat / Lon (never a vehicle's, never over a typed
+    one); build-inventory carries it and the browser gets it."""
+    mesh = tmp_path / "x.mesh"
+    mesh.write_bytes(_snapshot_bytes())
+    nodes = read_snapshot(mesh)
+    sheet = _mendonish(ipam_file, tmp_path)
+    import_rajant(sheet, nodes, "lab")
+    t101 = sheet.group("lab", "Trailer 101")
+    assert (t101["Lat"], t101["Lon"]) == ("40.760000", "-111.890000")
+    truck = sheet.group("lab", "Water Truck")
+    assert truck["Kind"] == "vehicle" and not truck["Lat"] and not truck["Lon"]
+    t101["Lat"], t101["Lon"] = "40.7701", "-111.8801"                         # typed by hand: kept
+    import_rajant(sheet, nodes, "lab")
+    assert (t101["Lat"], t101["Lon"]) == ("40.7701", "-111.8801")
+    out = tmp_path / "devices.xlsx"
+    sheet.save(out)
+    again = Sheet.load(out)
+    assert (again.group("lab", "Trailer 101")["Lat"], again.group("lab", "Trailer 101")["Lon"]) == ("40.7701", "-111.8801")
+    again.group("lab", "Trailer 102")["Lat"], again.group("lab", "Trailer 102")["Lon"] = "north", "-111.9"
+    data, report = build_inventory(again, "lab")
+    entry = next(g for g in data["infrastructure"] if g["name"] == "Trailer 101")
+    assert (entry["lat"], entry["lon"]) == (40.7701, -111.8801)
+    assert any("Trailer 102: Lat/Lon 'north'" in r for r in report)
+    tree = parse_inventory({"site": {"id": "lab", "name": "Lab"}, "infrastructure": [
+        {**{k: entry[k] for k in ("id", "name", "kind", "lat", "lon")},
+         "devices": [{"id": "t101-sw", "type": "switch", "host": "10.9.0.5"}]}]}).public_tree()
+    g = next(g for t in tree["tabs"] for g in t["groups"] if g["name"] == "Trailer 101")
+    assert (g["lat"], g["lon"]) == (40.7701, -111.8801)
+
+
+def test_service_ports_are_checked_by_type():
+    sheet = Sheet()
+    import_csv(sheet, [{"name": "Mobius server", "type": "mobius_server", "ip": "10.9.1.5", "group": "Servers", "kind": "server"},
+                       {"name": "Switch", "type": "switch", "ip": "10.9.1.6", "group": "Servers", "kind": "server"}], "lab")
+    data, _ = build_inventory(sheet, "lab")
+    comps = {c["type"]: c for g in data["control_room"] for c in g["components"]}
+    assert comps["mobius_server"]["checks"] == ["tcp:18080"] and "checks" not in comps["switch"]
+
+
+def test_simulated_vehicles_drive_around_the_site():
+    import math
+    import time as _time
+
+    from networkguru.inventory import load_inventory
+    from networkguru.sim.world import SimWorld
+
+    from .conftest import EXAMPLE
+    inv = load_inventory(EXAMPLE)
+    w = SimWorld(inv)
+    now = _time.time()
+    site = (inv.site.lat, inv.site.lon)
+    for gid in w.vehicles:
+        a, b = w.veh_pos(gid, now), w.veh_pos(gid, now + 60)
+        assert math.dist(a, site) < 0.03 and a != b                 # within ~3 km, and moving
+    gnss = next(c for c in inv.comps.values() if c.type == "gnss")
+    r = w.sample(gnss.id, now)
+    if r.reachable:
+        assert set(r.info) == {"lat", "lon"}                          # info: kept while the vehicle is quiet
+
+
 def test_sites_sheet_feeds_the_inventory(tmp_path):
     """Site name, time zone, GPS and InfluxDB come from the Sites sheet - none of it is in the code."""
     sheet = Sheet()

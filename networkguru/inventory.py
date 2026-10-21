@@ -369,6 +369,7 @@ class Inventory:
                     "id": g.id, "name": g.name, "kind": g.kind or ("vehicle" if tab == "vehicles" else ""),
                     "access": g.access, "model": g.model, "mobius_asset": g.mobius_asset,
                     "expected_online": g.expected_online, "offline_severity": self.offline_severity(g.id),
+                                    "lat": g.lat, "lon": g.lon,
                     "components": [{
                         "id": c.id, "type": c.type, "name": c.label, "host": c.host, "model": c.model,
                         "source": c.source or "device", "depends_on": c.depends_on, "critical": c.critical,

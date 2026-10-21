@@ -4,14 +4,14 @@ A browser dashboard for one autonomous site. It shows whether the comms chain **
 
 It has a **Live** view and up to **30 days of History**. The pages are organised into three tabs: Vehicles, Control Room and Infrastructure. Each tab shows an overview card for every vehicle, desk and location, and each card opens a detail page.
 
-> **Version 0.5.0 installs on a site server, but it still shows simulated data.** The data uses the **real Mendon layout**, built from the IPAM sheet and the BC|Commander snapshot. This version adds:
-> - a Docker install for an Ubuntu server, including servers with no internet
-> - a daily update check that asks an admin before anything is installed
-> - the morning report to Teams and e-mail
+> **Version 0.6.0** adds:
+> - a **Map** of the site: a pin per location in its live status colour, the vehicles and the 60 GHz links (satellite images when online, a plain grid offline)
+> - the first **real device checks**: in live mode every device with an address is pinged and its service ports are checked
+> - **Report a problem**: an admin downloads one zip for whoever looks into an issue
 >
-> Next is 0.6.0, the first real device readers: Rajant SNMP v3, Tachyon read-only SNMP, switch SNMP, Cerbo GX and Mobius InfluxDB. See ARCHITECTURE.md → *Roadmap*.
+> It still starts in simulated mode on the **real Mendon layout**. Next is 0.7.0, the device readers: Rajant SNMP v3, Tachyon read-only SNMP, switch SNMP, Cerbo GX and Mobius InfluxDB. See ARCHITECTURE.md → *Roadmap*.
 
-Source: **github.com/Quesito350/Network-Guru** (private). Every version is a tagged GitHub Release with its zip and `.sha256`.
+Source: **github.com/Quesito350/Network-Guru** (public). Every version is a tagged GitHub Release with its zip and `.sha256`.
 
 ## Try it on this PC
 
@@ -74,7 +74,7 @@ You need an Ubuntu Server 22.04 or 24.04 machine (or a Proxmox VM) with Docker E
 - It asks for each secret with hidden input and stores them in `/opt/networkguru/secrets/secrets.env` (mode 600). The secrets are the admin password, the Teams webhook and the mail login, plus an optional GitHub token (not needed: the repository is public).
 - It builds the app image with no internet and starts it.
 
-The dashboard then runs at `http://<server>:8080`. It starts in simulated mode, clearly marked, until the real drivers arrive (`--mode live` switches it). Re-run `install.sh` at any time: it keeps the data. `--secrets` asks for the secrets again.
+The dashboard then runs at `http://<server>:8080`. It starts in simulated mode, clearly marked; `--mode live` checks the real devices with ping and their ports (0.6.0). Re-run `install.sh` at any time: it keeps the data. `--secrets` asks for the secrets again.
 
 **Never** remove the Docker volumes: they hold the history and the events. `deploy/HARDWARE_TEST.md` is the checklist for a first install.
 
@@ -108,6 +108,20 @@ python run.py build-inventory ..\sites\devices.xlsx --site mendon --out ..\sites
   - **Vehicles:** fill in their *Mobius asset* to get VCU and GNSS checks (set *Has VAI* for VAI).
   - **Monitor = no:** marks spare or turned-off devices.
   - **No password columns.** Logins are named once per device type and typed on the server.
+
+## Map, live checks and problem reports
+
+- **Map** (the Map tab):
+  - a pin per location in its live status colour, the vehicles where their GNSS last put them, and the 60 GHz links as lines
+  - hover for the reason, click for the location's page
+  - positions: the **Lat / Lon** columns of the Groups sheet in `devices.xlsx`; `import-rajant` fills them from the radios' GPS (a typed position wins), then `build-inventory`
+  - background: **Admin → Map** (satellite, street map or none). The viewer's browser loads the images straight from the provider; offline it is a plain grid, with the pins still placed by GPS
+- **Live checks** (`NG_MODE=live`, or `install.sh --mode live`):
+  - every device with an address is pinged (4 echoes: latency and loss), and its service ports are checked (`checks: ["tcp:18080"]` in the inventory, added by type for the Mobius server, InfluxDB and the GNSS base; Starlink through its `target`)
+  - a device that answers nothing for 3 polls is Offline; the existing "Unreachable via" logic works as with the simulator
+  - VCU, GNSS and VAI say "Not checked yet" until the Mobius reader (0.7.0)
+  - the site firewall must let the server ping the device networks; when ICMP is filtered, the port checks still count
+- **Report a problem** (header): a signed-in admin downloads one zip with the version, status, the last 7 days of events, recent log lines, the inventory and any errors the page caught. Secrets are never in it. A red dot on the button means the page caught an error.
 
 ## Things to try
 

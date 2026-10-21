@@ -2,21 +2,23 @@
 // and the update banner.
 
 import { connectLive, get } from "./api.js";
-import { clear, h, setText } from "./dom.js";
+import { clear, h, s, setText } from "./dom.js";
 import { fmtAgo, fromLocalInput, setup, STATUS_LABEL, toLocalInput, tz } from "./fmt.js";
 import { badge, countsLine, dot } from "./status.js";
 import { modal } from "./modal.js";
+import { errorButton, watchErrors } from "./problem.js";
 import { indexInventory, node, notify, store, subscribe, window_ } from "./store.js";
 import { initUpdates } from "./updates.js";
 import { adminView } from "./views/admin.js";
 import { eventLink, TAB_TITLE } from "./views/common.js";
 import { componentView, groupView } from "./views/detail.js";
+import { mapView } from "./views/map.js";
 import { overviewView } from "./views/overview.js";
 import { reportView } from "./views/report.js";
 import { hideTip } from "./widgets/chart.js";
 
 const TABS = ["vehicles", "control", "infrastructure"];
-const PAGES = ["admin", "report"];
+const PAGES = ["admin", "report", "map"];
 let current = null;
 let route = { parts: [], key: "" };
 
@@ -70,6 +72,7 @@ function render(force = false) {
   const [a, b] = r.parts;
   if (a === "admin") current = adminView(main, nav);
   else if (a === "report") current = reportView(main, nav);
+  else if (a === "map") current = mapView(main, nav);
   else if (a === "c") current = componentView(main, b, nav);
   else if (b) current = groupView(main, b, nav);
   else current = overviewView(main, a, nav);
@@ -82,6 +85,7 @@ function render(force = false) {
 function titleFor(parts) {
   if (parts[0] === "admin") return "Admin";
   if (parts[0] === "report") return "Morning report";
+  if (parts[0] === "map") return "Map";
   if (parts[0] === "c") return store.comps[parts[1]]?.name || "Component";
   if (parts[1]) return store.groups[parts[1]]?.name || "Detail";
   return TAB_TITLE[parts[0]];
@@ -118,10 +122,11 @@ function buildHeader() {
   el.theme = h("button", { class: "hbtn", type: "button", onclick: cycleTheme, title: "Light / dark display" });
   el.help = h("button", { class: "hbtn", type: "button", text: "?", title: "How to read this dashboard", "aria-label": "Help", onclick: openHelp });
   el.admin = h("a", { class: "hbtn", href: "#/admin", text: "Admin", title: "Updates and the morning report (sign-in needed to change anything)" });
+  el.report = errorButton();
   bar.append(
     h("a", { class: "brand", href: "#/vehicles" }, h("img", { src: "/static/img/asi_logo_white.png", alt: "ASI" }),
       h("div", {}, h("div", { class: "title", text: "Network Guru" }), h("div", { class: "site", text: store.meta.site.name }))),
-    el.mode, el.range, el.custom, h("span", { class: "spacer" }), el.conn, el.evBtn, el.admin, el.theme, el.help);
+    el.mode, el.range, el.custom, h("span", { class: "spacer" }), el.conn, el.evBtn, el.report, el.admin, el.theme, el.help);
   applyTheme(lsGet("ng_theme") || "auto");
 }
 
@@ -168,9 +173,16 @@ function buildTabs() {
     el.tabs[t] = { a, counts };
     nav_.append(a);
   }
+  el.mapTab = h("a", { href: "#/map", class: "tab-map" },
+    s("svg", { viewBox: "0 0 16 16", "aria-hidden": "true" },
+      s("path", { d: "M8 1.5a4.5 4.5 0 00-4.5 4.5c0 3.4 4.5 8.5 4.5 8.5s4.5-5.1 4.5-8.5A4.5 4.5 0 008 1.5zm0 6.3a1.8 1.8 0 110-3.6 1.8 1.8 0 010 3.6z" })),
+    "Map");
+  el.mapTab.addEventListener("click", (e) => { e.preventDefault(); nav("#/map"); });
+  nav_.append(el.mapTab);
 }
 
 function updateTabs() {
+  el.mapTab?.setAttribute("aria-current", route.parts[0] === "map" ? "page" : "false");
   for (const t of TABS) {
     const { a, counts } = el.tabs[t];
     a.setAttribute("aria-current", route.parts[0] === t || (route.parts[0] === "c" && store.comps[route.parts[1]]?.tab === t) ? "page" : "false");
@@ -296,6 +308,8 @@ function openHelp() {
 }
 
 // ---------------------------------------------------------------------------
+watchErrors();                        // before anything else can fail
+
 async function main() {
   const [meta, inv, live] = await Promise.all([get("/api/meta"), get("/api/inventory"), get("/api/live")]);
   store.meta = meta;

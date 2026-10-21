@@ -18,7 +18,7 @@ from ..catalog import TYPES
 
 SITE_COLS = ["Site", "Name", "Time zone", "Lat", "Lon", "Mobius InfluxDB URL", "Subnets", "Infrastructure subnet",
              "Notes"]
-GROUP_COLS = ["Site", "Group", "Kind", "Mobius asset", "Access", "Expected online", "Has VAI", "Notes"]
+GROUP_COLS = ["Site", "Group", "Kind", "Mobius asset", "Access", "Expected online", "Has VAI", "Lat", "Lon", "Notes"]
 DEVICE_COLS = ["Site", "Group", "Type", "Name", "Model", "Serial", "MAC", "Address", "IP", "Link", "Role",
                "Install RSSI", "Switch port", "Firmware", "Monitor", "Notes"]
 KINDS = ["vehicle", "trailer", "cow", "tower", "building", "repeater", "core", "server", "client"]
@@ -31,6 +31,8 @@ README = [
     "  Mobius InfluxDB URL, Subnets (comma-separated, e.g. 10.200.0.0/16: a Rajant found there belongs to this",
     "  site) and the Infrastructure subnet (an unnamed Rajant there is a tower, not a vehicle).",
     "Groups: one row per vehicle, trailer, tower, building, repeater, COW, network core, Mobius server or desk.",
+    "  Lat / Lon: where its pin goes on the map (decimal degrees, e.g. 40.7602 / -111.8912). The Rajant snapshot",
+    "  import fills them from the radios' GPS when empty; type or correct them here. Vehicles need none (they move).",
     "Devices: one row per device. Group must match a Groups row. Type picks how it is checked.",
     "Address: static, or dhcp (then give a Serial or MAC so it can be found when its IP changes).",
     "Link / Role / Install RSSI: 60 GHz Tachyon pairs share a Link name; master is the end toward the COW.",
