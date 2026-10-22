@@ -76,9 +76,13 @@ browser ──► REST /api/... (history charts, availability, path, events) ─
 | `runtime.py` | wires everything: chooses the store, starts backfill + scheduler (sim) or the collector (live), housekeeping |
 | `sim/noise.py`, `sim/world.py`, `sim/backfill.py` | deterministic simulator and the 30-day fast-forward through the real pipeline |
 | `web/app.py`, `web/api.py`, `web/ws.py` | FastAPI app, REST endpoints, WebSocket (snapshot, then 1 s deltas) |
-| `web/static/` | `index.html`, `css/app.css`, `js/app.js` (routing, header, drawer, modals), `js/views/*` (incl. `map.js`), `js/widgets/*` (chart, path, small, `slippy.js` map), `js/problem.js` (Report a problem, caught page errors) |
+| `web/static/` | `index.html`, `css/app.css`, `js/app.js` (routing, header, drawer, modals), `js/views/*` (incl. `map.js`, `mobius.js`), `js/widgets/*` (chart, path, small, `slippy.js` map), `js/problem.js` (Report a problem, caught page errors), `js/quiet.js` (Live's gone-quiet rule) |
 | `drivers/reach.py` | live mode: ping (unprivileged ICMP socket on Linux, `IcmpSendEcho` on Windows) and TCP port checks |
-| `drivers/snmp.py`, `snmp_profiles.py` | SNMP v2c / v3 (USM: SHA1 auth, AES-128 privacy) client; what each type is asked for |
+| `drivers/snmp.py`, `snmp_profiles.py` | SNMP v2c / v3 (USM: SHA1 auth, AES-128 privacy) client; what each type is asked for, incl. the Rajant / Tachyon vendor values |
+| `drivers/cellular.py`, `alms.py` | cell modems: the reader by model; Sierra ALEOS / MikroTik LTE / OpenWrt (snmpd extend) over SNMP; Sierra XR80 / XR90 from ALMS |
+| `drivers/starlink.py` | the dish's gRPC-Web status call through the router's NAT, decoded with `importers/protowire.py` |
+| `drivers/netmaker.py` | WireGuard tunnels from the Netmaker gateway's REST API (GET only); the gateway card |
+| `drivers/mobius_explore.py` | everything else in the Mobius InfluxDB, sorted onto the groups (never a status) |
 | `drivers/modbus.py`, `victron.py` | Modbus TCP client; the Cerbo GX registers (Victron's register list rev 3.81) |
 | `drivers/influx.py`, `mobius.py`, `mobius_map.py` | InfluxDB 1.x client + `probe-influx`; the Mobius reader and its mapping |
 | `drivers/readers.py`, `device.py`, `drivers/__init__.py` | the per-device readers; one poller per device (ping + ports + reader); `live_pollers` |
@@ -301,7 +305,9 @@ app               result (matched by request_id, each consumed once) -> system e
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/meta` | version, site, mode, notes, backfill %, catalog, thresholds, enum rules |
+| `GET /api/meta` | version, site, mode, notes, backfill %, catalog, thresholds, enum rules, `started`, `hide_quiet` {min, tabs}, `mobius_explore` |
+| `GET /api/mobius/summary` | per group the newest Mobius data time and map positions (the cards, the gone-quiet rule) |
+| `GET /api/mobius`, `/api/mobius/{group}` | everything the Mobius explorer has: matched groups, "not in the inventory", site-wide values; one group's newest values |
 | `GET /api/inventory` | tabs → groups → components, with no `*_ref` and no sim knobs |
 | `GET /api/live`, `/api/live/{id}` | snapshot of every node |
 | `WS /ws/live` | snapshot, then deltas every 1 s, heartbeat every 15 s |
@@ -320,7 +326,7 @@ app               result (matched by request_id, each consumed once) -> system e
 | `GET /api/admin/status` | updates, report state, settings, which secrets are set (names only) |
 | `POST /api/admin/update/{check,approve,remind,skip,dismiss}` | admin update actions |
 | `POST /api/admin/update/upload?name=` | offline update: raw zip body, `X-Update-Sha256` header |
-| `PUT /api/admin/settings` | report and check times, channels, recipients, Graph / SMTP host, dashboard URL |
+| `PUT /api/admin/settings` | report and check times, channels, recipients, Graph / SMTP host, dashboard URL, map background, `hide_quiet_min` / `hide_quiet_tabs` |
 | `POST /api/admin/report/test` | send a test report now |
 
 Every `/api/admin/*` change needs the admin cookie and `X-Requested-With: networkguru`.
@@ -454,10 +460,20 @@ Ranges are capped at 32 days.
 - **One poller per device** (`drivers/device.py DevicePoller`): ping + ports (`ReachPoller`) and the type's reader in one `CompResult` - the pipeline takes a component's metrics from one result. The reader runs at most every 30 s (`READ_EVERY_S`); between reads its last values go out again.
   - A read that fails on a device that answers is `read_ok{via=snmp|modbus|influx}` = 0 (rule `zero: warning`, reason "Device data (snmp): Not read") with `info.read_error`. A device that answers its reader but not ping (ICMP filtered) is reachable.
   - Logins: the component's `*_ref` names (from `defaults.types`, or `importers/build.py TYPE_DEFAULTS` for a hand-written inventory), read through `config.secret()` on every read - adding them needs no restart. Missing ones: "not set up", no read, one dashboard note (`live_pollers`).
-- **SNMP** (`drivers/snmp.py`, standard library + `cryptography` for AES): BER, GET / GETBULK walks over UDP with retries; v2c; v3 USM per RFC 3414 / 3826 (engine discovery, password-to-key localisation - tested with the RFC 3414 A.3.2 vector - HMAC-SHA1-96, AES-128-CFB, one time-window resync), the usmStats reports as readable errors. `snmp_profiles.py`: sysUpTime / sysName / sysDescr; IF-MIB 64-bit (else 32-bit) octet rates over up, non-loopback interfaces with counter-wrap handling; switch ports up (Ethernet types, oper up) and POWER-ETHERNET-MIB consumption. `VENDOR` tables for Rajant / Tachyon OIDs (filled from the MIB files in 0.7.1).
+- **SNMP** (`drivers/snmp.py`, standard library + `cryptography` for AES): BER, GET / GETBULK walks over UDP with retries; v2c; v3 USM per RFC 3414 / 3826 (engine discovery, password-to-key localisation - tested with the RFC 3414 A.3.2 vector - HMAC-SHA1-96, AES-128-CFB, one time-window resync), the usmStats reports as readable errors. `snmp_profiles.py`: sysUpTime / sysName / sysDescr; IF-MIB 64-bit (else 32-bit) octet rates over up, non-loopback interfaces with counter-wrap handling; switch ports up (Ethernet types, oper up) and POWER-ETHERNET-MIB consumption. `VENDOR` functions for Rajant / Tachyon and the cell modems (0.8.0, below).
 - **Modbus** (`drivers/modbus.py`, standard library): function 3 with exception codes. `victron.py`: unit 100 (com.victronenergy.system) 817-819, 840-843, 850, 860; the solar charger's unit (`mppt_unit`, Devices sheet "Modbus unit") 775 / 784 - checked against Victron's register list rev 3.81.
 - **Mobius** (`drivers/influx.py`, `mobius.py`): InfluxDB 1.x over httpx; `probe-influx` writes the layout (names, types, asset tag values, newest times - no data values). `MobiusPoller` (one for all mapped components) asks `SELECT <fields> ... WHERE time > now() - 2m GROUP BY <asset tag> ORDER BY time DESC LIMIT 1` per mapped measurement, matches the tag to the vehicle's `mobius_asset`, makes numbers metrics and lat / lon info (the map); data older than 60 s = no data. `mobius_map.DEFAULT_MAP` is empty until the Mendon probe output; `mobius.map` in the inventory overrides it. Unmapped types: "Not mapped yet".
 - **Bring-up:** `probe-snmp`, `probe-modbus`, `probe-influx` (logins from secrets.env only). `install.sh --secrets` asks for every `*_ref` name in the site's inventory (stdlib text scan, comments ignored).
+
+## Readers 2 and the Live view (0.8.0)
+
+- **Rajant vendor values** (enterprise 34861, OIDs from Rajant's MIB and Zabbix template; the agent answers on the bare OIDs, so the reader walks the subtree and accepts both forms): temperature (hundredths of a degree), per radio frequency / noise / channel busy (busy time / active time between reads), InstaMesh dropped packets per second, serial and free memory as info. Cards show the busiest radio and the noisiest; no rules on them yet. No peer count or input voltage in this MIB (simulator only).
+- **Tachyon vendor values** (57344.1): the peer table walked by its string index (the weakest peer: rx power, SNR, MCS, tx rate, distance, link uptime), peer count → `tachyon_link_up`, the radio table (temperature, channel), system (model, serial, firmware, CPU / memory). `tachyon_remote_rssi_dbm` is the other end's own reading, shared through `readers.LINK_RSSI` by link name. Units the MIB leaves open are taken in their plausible range (tenths when beyond it).
+- **Cell modems** (`cellular.kind(model)`): Sierra ALEOS scalars under 20542.9.1.1 (from Sierra's published MIB - to confirm with `probe-snmp --walk` at a site); the MikroTik LTE table 14988.1.1.16.1.1 (index found with a 2-step walk so the IMEI / IMSI / SIM columns 11-13 are never fetched); OpenWrt through NET-SNMP-EXTEND-MIB `nsExtendOutputFull."ngcell"` (`deploy/openwrt/ng-cell.sh`: mmcli or uqmi, key=value lines); XR80 / XR90 from ALMS (`alms.py`: client-credentials token, `GET /api/v1/systems` every 5 min shared by all modems, matched by serial, a whitelist of data keys; RSRP / RSRQ tenths converted). Unknown model: ping only and one note. `build_inventory` gives each modem the logins of its reader (`CELL_DEFAULTS`).
+- **Starlink** (`starlink.py`): `POST /SpaceX.API.Device.Device/Handle` (gRPC-Web, `00 00000003 e23e00` = `get_status`) to the `target`; no Origin / Referer (the dish answers empty to a foreign one); response field 2004 decoded with `protowire` (proto3: a missing number is 0, a missing alert off). Alerts that are notices (heating, roaming, power save, install pending, map reset) are listed but not counted.
+- **WireGuard** (`netmaker.py`): `/api/hosts` + `/api/nodes` (+ `/api/metrics` on Pro; a 403 / 404 switches it off for an hour) with `Authorization: Bearer`, cached 20 s and shared by `NetmakerPoller` (every `wireguard` component, matched by `netmaker_host`) and the gateway's `NetmakerReader`. Online = connected, not offline, checked in within 10 min. Keys are never kept. Sheet: Sites "Netmaker URL" (→ `netmaker:` block + a "Netmaker gateway" group), Groups "Netmaker host" (→ a `wireguard` component).
+- **Mobius explorer** (`mobius_explore.py`, a runtime task, not a poller): the layout every 30 min with a "who" tag per measurement (asset_tag, else the tag whose values match inventory names, else an asset-like tag); every 60 s `SELECT * ... WHERE time > now() - 10m GROUP BY * ORDER BY time DESC LIMIT 3` per measurement; newest value per field and series; unmatched "who" values listed; lat / lon fields → vehicle map positions. Secret-like field names dropped, text cut to 200, the problem report gets counts only.
+- **Live view** (`js/quiet.js`): a group is quiet when no component was seen (and no Mobius data came) for `hide_quiet_min` - counted from the dashboard's start when it never answered, and never for a group nothing checks. Quiet groups leave the Live overview, its tiles and issues and the map (a per-tab switch shows them faded); History, pages, alerts and the report are unchanged. Status tiles are buttons that filter the cards (`?show=` in the address).
 
 ## Roadmap
 
@@ -466,8 +482,9 @@ Ranges are capped at 32 days.
 | 0.5.0 ✓ | Docker install + **daily update check with admin approval** + **morning report** (details below). Built 2026-10-15; the hardware test (`deploy/HARDWARE_TEST.md`) is still to do | site VM |
 | 0.6.0 ✓ | ping/TCP live checks, the site map, Report a problem (details in *Live checks, map and problem report*) | test PC / Mendon LAN |
 | 0.7.0 ✓ | the device readers: SNMP (standard MIBs), Modbus (Cerbo GX), `probe-influx` + the mapping-driven Mobius reader (details in *Device readers*) | test PC / Mendon LAN |
-| 0.7.1 | Rajant / Tachyon vendor values from their MIB files; the Mobius mapping from `probe-influx` at Mendon | Mendon LAN |
-| 0.8.0 | readers 2: MikroTik REST (GET only), Celona Orchestrator, Starlink gRPC, airMAX SNMP, UniFi API, Westermo SNMP, windows_exporter; address lookups for DHCP (UniFi clients, MikroTik leases/ARP, Rajant ARP over SNMP, MNDP, DNS) | each device type |
+| 0.8.0 ✓ | Rajant / Tachyon vendor values (MIB files), cell modems (Sierra RV55 / XR80, MikroTik, OpenWrt), Starlink, WireGuard from Netmaker, the Mobius explorer, status tiles as filters, hiding what has gone quiet (details in *Readers 2 and the Live view*) | Mendon LAN |
+| 0.8.x | the Mobius mapping from `probe-influx` at Mendon (history and rules for VCU / GNSS / VAI); unit checks of the Tachyon and Sierra values against the devices | Mendon LAN |
+| 0.9.0 | readers 3: MikroTik REST (GET only), Celona Orchestrator, airMAX SNMP, UniFi API, Westermo SNMP, windows_exporter; address lookups for DHCP (UniFi clients, MikroTik leases/ARP, Rajant ARP over SNMP, MNDP, DNS) | each device type |
 | 1.0.0 | thresholds reviewed with ops, optional view password, HTTPS (admin sign-in is plain HTTP on the LAN in 0.5.0), second-site offline install | site |
 | later | Rajant BCAPI (live "via tower X"), Helm direct (`WAN:21443`), 30-day backfill from Mobius Influx, vehicle tracks on the map (from history), control-room kiosk mode | |
 
@@ -493,7 +510,9 @@ Ranges are capped at 32 days.
 
 1. **Mobius InfluxDB:** reachable from the dashboard server. v1 listens on 127.0.0.1 with no auth, so this means a binding change plus a Windows Firewall rule allowing only the dashboard IP on 8086. The Mobius team must sign off.
 2. **Vehicle routers:** an input-accept rule for the dashboard IP and a read-only REST user in the Router Config Tool templates (a separate Router Config Tool version). Vehicle WAN IPs need DHCP reservations. At Celona or uplink-NAT sites, vehicles are Mobius-only.
-3. **Starlink:** every dish is 192.168.100.1. Give each trailer a dst-nat (`<trailer-router>:9200 → 192.168.100.1:9200`), so the inventory can use `target: host:port`.
+3. **Starlink:** every dish is 192.168.100.1. Give each trailer a dst-nat to the dish's gRPC-Web port (`<trailer-router>:<port> → 192.168.100.1:9201`), and put `<trailer-router>:<port>` in the Devices row's API address.
+3a. **WireGuard:** the Netmaker gateway's API URL and an access token of a dedicated Netmaker user (with an expiry; Community Edition has no read-only role), and each tunnel's host name on the Groups sheet.
+3b. **Cell modems:** a read-only SNMP community on the RV55s, MikroTik and OpenWrt modems (and the ng-cell script on OpenWrt); an ALMS API client (client credentials, view systems) for the XR80s.
 4. **Rajant:** SNMP v3 on the 8 infrastructure radios (the V&V change request), with the Network Guru server as the source. Per-peer data needs Rajant's BCAPI SDK.
 5. **Tachyon and trailer switches:** a read-only SNMP community on each (the switches already have an RO community configured).
 6. **No GitHub token is needed** since the repository went public (0.5.3). A site may still set a read-only one (fine-grained: only Network-Guru, Contents read-only).
@@ -506,6 +525,7 @@ Ranges are capped at 32 days.
 
 ## Version history
 
+- **0.8.0** (2026-10-21): Rajant / Tachyon vendor values; cell modem readers (Sierra ALEOS SNMP, ALMS for XR80 / XR90, MikroTik LTE, OpenWrt + `ng-cell.sh`); Starlink gRPC-Web status; WireGuard tunnels from Netmaker (+ gateway group, sheet columns Netmaker URL / host / API address); the Mobius explorer and the Mobius data sections; status tiles filter the cards; Live hides what has gone quiet (Admin → Live view); `probe-netmaker`, `probe-starlink`, `probe-snmp --type cell_modem`; the admin page lists the inventory's device logins (set or not).
 - **0.7.0** (2026-10-21): device readers - SNMP v2c / v3 (Rajant, Tachyon, switches; standard MIBs), Modbus TCP (Cerbo GX), the Mobius InfluxDB reader driven by a mapping + `probe-influx`; one `DevicePoller` per device with `read_ok`; probe commands; `install.sh --secrets` asks for the inventory's login names; new dependency `cryptography` (AES for SNMP v3).
 - **0.6.0** (2026-10-21): live mode pings every device and checks its service ports (`drivers/reach.py`); the Map page (`slippy.js`, `map.js`, Lat / Lon on the Groups sheet, `map_background` + CSP); Report a problem (admin zip, page error capture, log buffer). Device readers moved to 0.7.0.
 - **0.5.5** (2026-10-21): release.py starts the image workflow itself and waits for it (`build_image`), so each release also publishes the test-install image; the workflow is `workflow_dispatch` only.

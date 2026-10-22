@@ -8,7 +8,7 @@ from networkguru.inventory import InventoryError, Schedule, parse_inventory
 def test_example_inventory_loads(example_inv):
     assert len(example_inv.tab_groups("vehicles")) == 7
     assert len(example_inv.tab_groups("control")) == 5
-    assert len(example_inv.tab_groups("infrastructure")) == 9
+    assert len(example_inv.tab_groups("infrastructure")) == 10      # + the Netmaker gateway (0.8.0)
     assert example_inv.comps["ac2845-vcu"].source == "mobius"        # VCU defaults to Mobius data
 
 

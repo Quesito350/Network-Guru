@@ -7,6 +7,24 @@ networkguru.__version__ - release.py refuses to package otherwise).
 """
 
 CHANGES = [
+    ("0.8.0", "2026-10-21", [
+        "The status tiles now filter: click Critical, Warning, OK, Offline or Unknown to see only those cards, "
+        "click again (or Show all) for everything. The choice stays in the address, so a refresh keeps it.",
+        "Live forgets what has gone away: a vehicle, desk or location none of whose devices has answered for an "
+        "hour drops off the Live cards and the map, with a 'Show them' switch. History, its own page, alerts and "
+        "the morning report keep it. Admin → Live view sets the time and the tabs it applies to.",
+        "Everything Mobius has: each vehicle, location and desk page shows every value the Mobius InfluxDB has "
+        "for it (Mobius data), cards say how fresh it is, vehicles with a position in Mobius move on the map, and "
+        "the Mobius Server's page lists what Mobius knows that is not in the inventory yet.",
+        "Rajant and Tachyon values from their MIB files: Rajant temperature, channel busy and noise per radio, "
+        "dropped packets; the Tachyon link's signal at both ends, SNR, MCS, PHY rate, radio temperature and CPU.",
+        "Cell modems, Starlink and WireGuard where a site has them: Sierra RV55 (SNMP) and XR80 (through ALMS), "
+        "MikroTik and OpenWrt modems with their signal and operator (Celona or a carrier); the Starlink dish's "
+        "latency, drop, obstruction and alerts through the trailer router; each WireGuard tunnel's state from the "
+        "Netmaker gateway. New sheet columns: Netmaker URL (Sites), Netmaker host (Groups), API address (Devices).",
+        "New bring-up commands: probe-netmaker, probe-starlink and probe-snmp --type cell_modem. The Admin page "
+        "lists every device login the inventory names, set or not.",
+    ]),
     ("0.7.0", "2026-10-21", [
         "Device readers in live mode: the Rajants (SNMP v3), Tachyons and trailer switches (read-only SNMP) and "
         "the Cerbo GX units (Modbus TCP) now report their own values - uptime and traffic, switch ports and PoE "

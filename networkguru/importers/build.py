@@ -12,6 +12,7 @@ import datetime as dt
 import re
 
 from ..catalog import TYPES
+from ..drivers.cellular import kind as cell_kind
 from .ipam import IpamRow, device_name, device_type, is_spare, location_group
 from .rajant_snapshot import RajantNode
 from .sheet import Sheet, _in_nets
@@ -30,6 +31,11 @@ TYPE_DEFAULTS = {
                "snmp_priv_ref": "RAJANT_SNMP_PRIV"},
     "tachyon": {"snmp_version": "2c", "snmp_community_ref": "TACHYON_SNMP_RO"},
     "switch": {"snmp_version": "2c", "snmp_community_ref": "SWITCH_SNMP_RO"},
+}
+# cell modems: by how the model is read (drivers/cellular.py)
+CELL_DEFAULTS = {
+    "snmp": {"snmp_version": "2c", "snmp_community_ref": "CELL_SNMP_RO"},
+    "alms": {"alms_client_id_ref": "ALMS_CLIENT_ID", "alms_client_secret_ref": "ALMS_CLIENT_SECRET"},
 }
 
 
@@ -138,6 +144,10 @@ def build_inventory(sheet: Sheet, site: str, name: str | None = None, timezone: 
     lat = lat if lat is not None else _num(meta.get("Lat"), DEFAULT_LAT, "Lat", report)
     lon = lon if lon is not None else _num(meta.get("Lon"), DEFAULT_LON, "Lon", report)
     influx = (meta.get("Mobius InfluxDB URL") or "").strip()
+    netmaker = (meta.get("Netmaker URL") or "").strip().rstrip("/")
+    if netmaker and not re.match(r"^https?://[^\s/]+", netmaker):
+        report.append(f"! Sites sheet: Netmaker URL '{netmaker}' does not start with https:// - left out")
+        netmaker = ""
     groups = [g for g in sheet.groups if g["Site"].strip().lower() == site.lower()]
     devices = [d for d in sheet.devices if d["Site"].strip().lower() == site.lower()]
     known = {g["Group"].strip().lower() for g in groups}
@@ -183,11 +193,21 @@ def build_inventory(sheet: Sheet, site: str, name: str | None = None, timezone: 
                 report.append(f"! {g['Group']} / {d['Name']}: unknown type '{d['Type']}' - skipped")
                 continue
             c: dict = {"id": unique(f"{gid}-{slug(d['Name'], 20)}"[:62]), "type": typ, "name": d["Name"]}
-            for col, key in (("IP", "host"), ("Model", "model"), ("Serial", "serial"), ("MAC", "mac"),
-                             ("Link", "link"), ("Role", "role"), ("Switch port", "port"), ("Notes", "notes"),
-                             ("Firmware", "firmware")):
+            for col, key in (("IP", "host"), ("API address", "target"), ("Model", "model"), ("Serial", "serial"),
+                             ("MAC", "mac"), ("Link", "link"), ("Role", "role"), ("Switch port", "port"),
+                             ("Notes", "notes"), ("Firmware", "firmware")):
                 if d[col]:
                     c[key] = d[col]
+            if typ == "cell_modem":
+                how = cell_kind(d["Model"])
+                c.update(CELL_DEFAULTS["alms" if how == "alms" else "snmp"])
+                if not how:
+                    report.append(f"! {g['Group']} / {d['Name']}: cell modem model '{d['Model']}' not recognised - "
+                                  "ping only (Model: RV55, XR80, MikroTik or OpenWrt)")
+                elif how == "alms" and not d["Serial"]:
+                    report.append(f"! {g['Group']} / {d['Name']}: an XR modem is found in ALMS by its Serial - add it")
+            if typ == "starlink" and not d["API address"]:
+                report.append(f"! {g['Group']} / {d['Name']}: Starlink needs its API address (router address:NAT port)")
             if (d["Address"] or "static").lower() == "dhcp":
                 c["address"] = "dhcp"
             if typ in TYPE_CHECKS and d["IP"]:
@@ -207,17 +227,30 @@ def build_inventory(sheet: Sheet, site: str, name: str | None = None, timezone: 
         if kind == "vehicle" and g["Mobius asset"]:
             for typ, nm in (("vcu", "VCU"), ("gnss", "GNSS")) + ((("vai", "VAI"),) if g["Has VAI"].lower() == "yes" else ()):
                 entry["components"].append({"id": unique(f"{gid}-{typ}"), "type": typ, "name": nm})
+        if g["Netmaker host"]:
+            if not netmaker:
+                report.append(f"! {g['Group']}: Netmaker host '{g['Netmaker host']}' but no Netmaker URL on the Sites sheet")
+            entry["components"].append({"id": unique(f"{gid}-wg"), "type": "wireguard", "name": "WireGuard",
+                                        "netmaker_host": g["Netmaker host"].strip()})
         if not entry["components"]:
             report.append(f"- {g['Group']}: no monitored devices yet - left out")
             continue
         tabs[TAB_OF_KIND.get(kind, "infrastructure")].append(entry)
 
     _wire_backhaul(tabs["infrastructure"], comp_rows, report, backhaul)
+    if netmaker:                                   # the gateway itself: its API, on a cloud server
+        host, _, port = netmaker.split("://", 1)[1].split("/", 1)[0].partition(":")
+        port = port or ("443" if netmaker.startswith("https") else "80")
+        tabs["infrastructure"].append({"id": unique("netmaker-gateway"), "name": "Netmaker gateway", "kind": "core",
+                                       "components": [{"id": unique("netmaker-api"), "type": "netmaker",
+                                                       "name": "Netmaker API", "host": host,
+                                                       "checks": [f"tcp:{port}"]}]})
     data = {
         "site": {"id": slug(site), "name": name or meta.get("Name") or site.title(),
                  "timezone": timezone or meta.get("Time zone") or DEFAULT_TZ, "lat": lat, "lon": lon},
         "defaults": {"backhaul": backhaul, "types": TYPE_DEFAULTS},
         **({"mobius": {"influx_url": influx}} if influx else {}),
+        **({"netmaker": {"url": netmaker, "token_ref": "NETMAKER_TOKEN"}} if netmaker else {}),
         "control_room": tabs["control_room"], "infrastructure": tabs["infrastructure"], "vehicles": tabs["vehicles"],
     }
     n_comp = sum(len(g["components"]) for t in tabs.values() for g in t)

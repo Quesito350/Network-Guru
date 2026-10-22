@@ -4,10 +4,12 @@ import { get, post } from "../api.js";
 import { h, setText } from "../dom.js";
 import { fmtValue, fmtWhen, metricLevel, typeSpec } from "../fmt.js";
 import { badge } from "../status.js";
+import { isQuiet, quietText } from "../quiet.js";
 import { node, store, window_ } from "../store.js";
 import { pathWidget } from "../widgets/path.js";
 import { battery } from "../widgets/small.js";
 import { chartsSection, compTable, detailHeader, eventsSection, TAB_TITLE, vehicleHops } from "./common.js";
+import { mobiusEverything, mobiusPanel } from "./mobius.js";
 
 function groupFacts(g) {
   return () => {
@@ -22,6 +24,7 @@ function groupFacts(g) {
     }
     const seen = g.components.map((c) => node(c.id).seen).filter(Boolean);
     if (seen.length) f.push(["Last data", fmtWhen(Math.max(...seen))]);
+    if (isQuiet(g, { always: true })) f.push(["Live view", `hidden while quiet - ${quietText(g)}`]);
     return f;
   };
 }
@@ -72,6 +75,10 @@ export function groupView(root, gid, nav) {
   const links = linksPanel(g, nav);
   if (links) parts.push(links);
   parts.push(h("section", { class: "section" }, h("h2", { text: "Components" }), table.el));
+  const mob = mobiusPanel(gid);
+  if (mob) parts.push(mob);
+  const mobAll = g.components.some((c) => c.type === "mobius_server") ? mobiusEverything(nav) : null;
+  if (mobAll) parts.push(mobAll);
   const chartItems = g.components.filter((c) => c.type !== "victron_cerbo").map((c) => ({ comp: c.id, label: c.name }));
   const charts = chartsSection(chartItems, { primary: true, title: "Key charts" });
   parts.push(charts.el);
@@ -98,10 +105,12 @@ export function groupView(root, gid, nav) {
   update();
   charts.start();
   power?.start?.();
+  mob?.start();
+  mobAll?.start();
   loadHist();
   return {
     update,
-    destroy() { charts.destroy(); power?.destroy?.(); },
+    destroy() { charts.destroy(); power?.destroy?.(); mob?.destroy(); mobAll?.destroy(); },
   };
 }
 

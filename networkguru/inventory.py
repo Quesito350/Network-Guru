@@ -95,11 +95,19 @@ class MobiusCfg(BaseModel):
     token_ref: str | None = None
 
 
+class NetmakerCfg(BaseModel):
+    """The Netmaker gateway's API (WireGuard tunnels); the token only by name, from secrets.env."""
+    model_config = ConfigDict(extra="allow")
+    url: str | None = None
+    token_ref: str = "NETMAKER_TOKEN"
+
+
 class InventoryFile(BaseModel):
     model_config = ConfigDict(extra="allow")
     site: Site
     defaults: dict[str, Any] = Field(default_factory=dict)
     mobius: MobiusCfg = Field(default_factory=MobiusCfg)
+    netmaker: NetmakerCfg = Field(default_factory=NetmakerCfg)
     control_room: list[Group] = Field(default_factory=list)
     infrastructure: list[Group] = Field(default_factory=list)
     vehicles: list[Group] = Field(default_factory=list)
@@ -154,6 +162,14 @@ def normalise_mac(text: str) -> str:
     return ":".join(h[i:i + 2] for i in range(0, 12, 2))
 
 
+def _from_cloud(c: Component) -> bool:
+    """A Sierra XR80 / XR90 is read from ALMS, so it needs no address of its own."""
+    if c.type != "cell_modem":
+        return False
+    from .drivers.cellular import kind
+    return kind(c.model, (c.model_extra or {}).get("reader")) == "alms"
+
+
 class Inventory:
     def __init__(self, data: InventoryFile, source: str = ""):
         self.data = data
@@ -202,7 +218,7 @@ class Inventory:
                         problems.append(f"{c.id}: {what} {value} is also on {seen[value]}")
                     seen[value] = c.id
             if (c.address == "static" and not c.host and not c.target and c.source != "mobius"
-                    and TYPES.get(c.type) and TYPES[c.type].ping):
+                    and TYPES.get(c.type) and TYPES[c.type].ping and not _from_cloud(c)):
                 self.warnings.append(f"{c.id}: no IP address yet - it will show Unknown until one is added")
 
     def _apply_type_defaults(self) -> None:
@@ -357,6 +373,9 @@ class Inventory:
                     names.add(ref)
         if self.data.mobius.token_ref and not has(self.data.mobius.token_ref):
             names.add(self.data.mobius.token_ref)
+        nm = self.data.netmaker
+        if nm.url and nm.token_ref and not has(nm.token_ref):
+            names.add(nm.token_ref)
         return sorted(names)
 
     def public_tree(self) -> dict:

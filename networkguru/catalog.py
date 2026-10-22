@@ -31,6 +31,9 @@ METRICS: dict[str, MetricSpec] = {
     "rajant_temp_c": MetricSpec("Temperature", "°C", 0),
     "rajant_input_v": MetricSpec("Input voltage", "V", 1),
     "rajant_peers": MetricSpec("Mesh peers", "", 0),
+    "rajant_busy_pct": MetricSpec("Channel busy", "%", 0),         # the busiest radio
+    "rajant_noise_dbm": MetricSpec("Noise floor", "dBm", 0),       # the noisiest radio
+    "rajant_drop_pps": MetricSpec("Dropped packets", "/s", 1),
     "if_rx_bps": MetricSpec("Rx", "bps", 1),
     "if_tx_bps": MetricSpec("Tx", "bps", 1),
     # vehicle routers
@@ -41,9 +44,20 @@ METRICS: dict[str, MetricSpec] = {
     "wan_rx_bps": MetricSpec("WAN Rx", "bps", 1),
     "wan_tx_bps": MetricSpec("WAN Tx", "bps", 1),
     "wg_handshake_age_s": MetricSpec("WireGuard handshake age", "s", 0),
-    # cellular modem on a vehicle
+    # WireGuard tunnels on the Netmaker gateway
+    "wg_checkin_age_s": MetricSpec("Last Netmaker check-in", "s", 0),
+    "wg_latency_ms": MetricSpec("Tunnel latency", "ms", 0),
+    "wg_up_pct": MetricSpec("Tunnel up", "%", 1),
+    "netmaker_nodes": MetricSpec("Nodes", "", 0),
+    "netmaker_nodes_online": MetricSpec("Nodes online", "", 0),
+    # cell modem (private Celona LTE or a public carrier)
+    "cell_connected": MetricSpec("Cell network", "", 0, {1: "Connected", 0: "Not connected"}),
+    "cell_rssi_dbm": MetricSpec("RSSI", "dBm", 0),
     "cell_rsrp_dbm": MetricSpec("RSRP", "dBm", 0),
+    "cell_rsrq_db": MetricSpec("RSRQ", "dB", 1),
     "cell_sinr_db": MetricSpec("SINR", "dB", 0),
+    "cell_supply_v": MetricSpec("Supply voltage", "V", 1),
+    "cell_temp_c": MetricSpec("Temperature", "°C", 0),
     # ASI VCU (from Mobius)
     "vcu_communicating": MetricSpec("Mobius link", "", 0, {1: "Communicating", 0: "Silent"}),
     "vcu_comms_latency_ms": MetricSpec("Comms latency", "ms", 0),
@@ -91,6 +105,8 @@ METRICS: dict[str, MetricSpec] = {
     "tachyon_tx_mcs": MetricSpec("Tx MCS", "", 0),
     "tachyon_phy_rate_mbps": MetricSpec("PHY rate", "Mbps", 0),
     "tachyon_radio_temp_c": MetricSpec("Radio temp", "°C", 0),
+    "tachyon_cpu_pct": MetricSpec("CPU", "%", 0),
+    "tachyon_mem_pct": MetricSpec("Memory", "%", 0),
     # Ubiquiti airMAX
     "airmax_signal_dbm": MetricSpec("Signal", "dBm", 0),
     "airmax_noise_dbm": MetricSpec("Noise floor", "dBm", 0),
@@ -152,7 +168,7 @@ class TypeSpec:
     interval: float                # seconds between polls
     headline: tuple[str, ...]      # metrics shown on cards / tables
     charts: tuple[ChartSpec, ...]
-    source: str = "device"         # device = polled directly; mobius = read from Mobius InfluxDB
+    source: str = "device"         # device = polled directly; mobius = Mobius InfluxDB; netmaker = Netmaker API
     ping: bool = True              # gets the implicit ping probe when it has a host
     load_w: float = 0.0            # typical draw on a solar trailer (simulator)
 
@@ -162,14 +178,17 @@ LOSS = C("loss", "Packet loss", ("ping_loss_pct", "Loss"), ymin=0, ymax=100)
 
 TYPES: dict[str, TypeSpec] = {t.key: t for t in [
     TypeSpec("rajant", "Rajant BreadCrumb", "BC", 10,
-             ("ping_rtt_ms", "rajant_peers", "rajant_temp_c"),
+             ("ping_rtt_ms", "rajant_busy_pct", "rajant_temp_c"),
              (C("rtt", "Round-trip time", ("ping_rtt_ms", "Dashboard ping"), ("mobius_radio_rtt_ms", "Mobius ping"),
                 primary=True, ymin=0),
               LOSS,
-              C("peers", "Mesh peers", ("rajant_peers", "Peers"), ymin=0),
+              C("busy", "Channel busy (busiest radio)", ("rajant_busy_pct", "Busy"), ymin=0, ymax=100),
+              C("noise", "Noise floor (noisiest radio)", ("rajant_noise_dbm", "Noise")),
               C("temp", "Temperature", ("rajant_temp_c", "Temperature")),
-              C("volt", "Input voltage", ("rajant_input_v", "Input voltage")),
-              C("traffic", "Traffic", ("if_rx_bps", "Rx"), ("if_tx_bps", "Tx"), ymin=0)),
+              C("traffic", "Traffic", ("if_rx_bps", "Rx"), ("if_tx_bps", "Tx"), ymin=0),
+              C("drops", "Dropped packets", ("rajant_drop_pps", "Dropped"), ymin=0),
+              C("peers", "Mesh peers (simulator only - not in Rajant's SNMP)", ("rajant_peers", "Peers"), ymin=0),
+              C("volt", "Input voltage (simulator only - not in Rajant's SNMP)", ("rajant_input_v", "Input voltage"))),
              load_w=18),
     TypeSpec("mikrotik", "MikroTik router", "MT", 30,
              ("ping_rtt_ms", "router_cpu_pct", "router_temp_c"),
@@ -192,7 +211,24 @@ TYPES: dict[str, TypeSpec] = {t.key: t for t in [
              (RTT,
               C("rsrp", "Signal (RSRP)", ("cell_rsrp_dbm", "RSRP"), primary=True),
               C("sinr", "SINR", ("cell_sinr_db", "SINR")),
+              C("rsrq", "Signal quality (RSRQ)", ("cell_rsrq_db", "RSRQ")),
+              C("rssi", "RSSI", ("cell_rssi_dbm", "RSSI")),
+              C("net", "Cell network", ("cell_connected", "Network"), kind="state"),
+              C("volt", "Supply voltage", ("cell_supply_v", "Supply")),
+              C("temp", "Temperature", ("cell_temp_c", "Temperature")),
               LOSS)),
+    TypeSpec("wireguard", "WireGuard tunnel", "WG", 30,
+             ("wg_checkin_age_s", "wg_latency_ms"),
+             (C("checkin", "Last Netmaker check-in", ("wg_checkin_age_s", "Age"), primary=True, ymin=0),
+              C("latency", "Tunnel latency (Netmaker Pro)", ("wg_latency_ms", "Latency"), ymin=0),
+              C("up", "Tunnel up (Netmaker Pro)", ("wg_up_pct", "Up"), ymin=0, ymax=100)),
+             source="netmaker", ping=False),
+    TypeSpec("netmaker", "Netmaker gateway", "NM", 30,
+             ("netmaker_nodes_online", "tcp_ms"),
+             (C("nodes", "Nodes online", ("netmaker_nodes_online", "Online"), ("netmaker_nodes", "All"),
+                primary=True, ymin=0),
+              C("tcp", "API connect time (port 443)", ("tcp_ms", "Connect"), ymin=0),
+              RTT)),
     TypeSpec("vcu", "ASI VCU", "VCU", 10,
              ("vcu_comms_latency_ms", "vcu_comms_drop_pct", "vcu_cpu_temp_c"),
              (C("latency", "Mobius comms latency", ("vcu_comms_latency_ms", "Latency"), primary=True, ymin=0),
@@ -232,7 +268,9 @@ TYPES: dict[str, TypeSpec] = {t.key: t for t in [
               C("obs", "Obstructed", ("starlink_obstructed_pct", "Obstructed"), ymin=0),
               C("tput", "Throughput", ("starlink_down_bps", "Download"), ("starlink_up_bps", "Upload"), ymin=0),
               C("state", "Dish state", ("starlink_state", "State"), kind="state"),
-              C("power", "Dish power", ("starlink_power_w", "Power"), ymin=0)),
+              C("alerts", "Active alerts", ("starlink_alerts", "Alerts"), ymin=0),
+              C("power", "Dish power (simulator only - not in the dish's status)", ("starlink_power_w", "Power"),
+                ymin=0)),
              ping=False, load_w=60),
     TypeSpec("tachyon", "Tachyon 60 GHz", "60G", 30,
              ("tachyon_rssi_dbm", "tachyon_snr_db", "tachyon_tx_mcs"),
@@ -242,6 +280,7 @@ TYPES: dict[str, TypeSpec] = {t.key: t for t in [
               C("mcs", "Tx MCS", ("tachyon_tx_mcs", "MCS"), ymin=0),
               C("rate", "PHY rate", ("tachyon_phy_rate_mbps", "PHY rate"), ymin=0),
               C("temp", "Radio temperature", ("tachyon_radio_temp_c", "Temperature")),
+              C("cpu", "CPU and memory", ("tachyon_cpu_pct", "CPU"), ("tachyon_mem_pct", "Memory"), ymin=0, ymax=100),
               RTT),
              load_w=10),
     TypeSpec("airmax", "Ubiquiti airMAX", "AM", 30,

@@ -4,6 +4,7 @@
 import { errorText, get, post } from "../api.js";
 import { clear, h, setText } from "../dom.js";
 import { fmtWhen, tz } from "../fmt.js";
+import { store } from "../store.js";
 import { admin, GIT_UPDATE, onUpdates, openReview, refreshSession, setUpdates, signInForm } from "../updates.js";
 import { eventLink } from "./common.js";
 
@@ -38,7 +39,8 @@ export function adminView(root, nav) {
       head.lastChild.remove();
       load();
     } }));
-    body.append(updatesPanel(status.updates), reportPanel(status), mapPanel(status), secretsPanel(status.secrets), eventsPanel(nav));
+    body.append(updatesPanel(status.updates), reportPanel(status), mapPanel(status), livePanel(status),
+      secretsPanel(status.secrets), eventsPanel(nav));
   }
 
   const off = onUpdates(() => { if (status && admin.signedIn) refreshUpdatesPanel(); });
@@ -222,6 +224,36 @@ function mapPanel(st) {
       + "Check that ASI's use fits the provider's terms (Esri may need an ArcGIS licence)." }),
     h("div", { class: "fields" }, h("label", { class: "field" }, h("span", { text: "Background" }), pick)),
     h("div", { class: "actions-row" }, save, h("a", { href: "#/map", text: "Open the map" })), msg);
+}
+
+// Live view: groups that have gone quiet drop off Live and the map (quiet.js)
+function livePanel(st) {
+  const msg = h("div", { class: "form-msg", role: "status" });
+  const mins = h("input", { type: "number", min: "0", max: "10080", step: "5", size: 6, "aria-label": "Minutes",
+    value: String(st.settings.hide_quiet_min ?? 60) });
+  const on = new Set(st.settings.hide_quiet_tabs || []);
+  const boxes = [["vehicles", "Vehicles"], ["control", "Control Room"], ["infrastructure", "Infrastructure"]].map(([v, label]) => {
+    const box = h("input", { type: "checkbox", value: v, checked: on.has(v) });
+    return { v, box, el: h("label", { class: "check" }, box, ` ${label}`) };
+  });
+  const save = h("button", { class: "btn primary", type: "button", text: "Save", onclick: async () => {
+    save.disabled = true;
+    setText(msg, "");
+    const patch = { hide_quiet_min: Number(mins.value || 0), hide_quiet_tabs: boxes.filter((b) => b.box.checked).map((b) => b.v) };
+    try {
+      await post("/api/admin/settings", patch, "PUT");
+      store.meta.hide_quiet = { min: patch.hide_quiet_min, tabs: patch.hide_quiet_tabs };
+      setText(msg, "Saved.");
+    } catch (e) { setText(msg, e.message); }
+    save.disabled = false;
+  } });
+  return h("section", { class: "panel pad" }, h("h2", { text: "Live view" }),
+    h("p", { class: "muted", text: "A vehicle, station or location none of whose devices has answered for this long drops off the "
+      + "Live view and the map (a switch on each page shows it again). History, its own page, alerts and the morning "
+      + "report keep it. Untick Infrastructure if a dead trailer must never drop out of sight." }),
+    h("div", { class: "fields" }, h("label", { class: "field" }, h("span", { text: "Hide after (minutes, 0 = never)" }), mins),
+      h("div", { class: "field" }, h("span", { text: "On the tabs" }), h("div", { class: "checks" }, boxes.map((b) => b.el)))),
+    h("div", { class: "actions-row" }, save), msg);
 }
 
 function secretsPanel(list) {

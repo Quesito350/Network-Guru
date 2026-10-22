@@ -1,8 +1,8 @@
 """Admin → Report a problem: one zip with what is needed to see what went wrong.
 
     report.txt            version, install type, mode, uptime, health, notes, settings (no secrets),
-                          which secrets are set (names only), inventory summary, the admin's note
-                          and the browser details
+                          which secrets are set (names only), inventory summary, the admin's note,
+                          the browser details and the Mobius explorer's counts (never Mobius values)
     status.json           every node's current status, reasons and last error
     events.json           7 days of status changes, system and info events (capped)
     log.txt               the last log lines (logbuffer.py)
@@ -67,6 +67,9 @@ def build(rt, who: str, note: str, browser: dict, secrets: list[dict], logs: str
         "",
         "Notes on the dashboard:",
         *([f"  - {n}" for n in rt.notes] or ["  (none)"]),
+        "",
+        "Mobius explorer (counts only, never values): "
+        + (", ".join(f"{k} {v}" for k, v in rt.mobius.report().items()) if getattr(rt, "mobius", None) else "not running"),
         "",
         "Inventory warnings:",
         *([f"  - {w}" for w in inv.warnings] or ["  (none)"]),

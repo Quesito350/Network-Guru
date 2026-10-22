@@ -7,6 +7,8 @@
   python -m networkguru probe-snmp IP --type T    what the SNMP reader gets from a device (logins from secrets.env)
   python -m networkguru probe-modbus IP           what the Modbus reader gets from a Cerbo GX
   python -m networkguru probe-influx --url URL    the Mobius InfluxDB layout (names only) for the Mobius mapping
+  python -m networkguru probe-netmaker            the Netmaker hosts and their tunnel status (NETMAKER_TOKEN)
+  python -m networkguru probe-starlink HOST:PORT  what the Starlink reader gets through the router's NAT
   python -m networkguru version
 """
 
@@ -251,9 +253,20 @@ def _print_read(metrics, info) -> None:
 def cmd_probe_snmp(args) -> int:
     import asyncio
 
-    from .drivers.readers import ReadError, SnmpReader
+    from .drivers.readers import ReadError, SnmpReader, cell_kind
     from .drivers.snmp import SnmpError
-    r = SnmpReader(_probe_comp(args, args.type))
+    comp = _probe_comp(args, args.type)
+    if args.type == "cell_modem":
+        if args.model:
+            comp.model = args.model
+        kind = cell_kind(comp)
+        if kind in (None, "alms"):
+            print("Give the modem's model: --model RV55 | MikroTik | OpenWrt (an XR80 / XR90 has no SNMP - it is read from ALMS)."
+                  if not kind else "An XR80 / XR90 has no SNMP - the dashboard reads it from ALMS.")
+            return 1
+        r = SnmpReader(comp, kind)
+    else:
+        r = SnmpReader(comp)
     missing = r.missing()
     if missing:
         print(f"Not set up: add {', '.join(missing)} to secrets.env (the test install: dev-secrets/secrets.env).")
@@ -329,6 +342,53 @@ def cmd_probe_influx(args) -> int:
     if args.out:
         Path(args.out).write_text(text + "\n", encoding="utf-8")
         print(f"Saved to {args.out} - send this file (it holds names, never data values).")
+    return 0
+
+
+def cmd_probe_netmaker(args) -> int:
+    import asyncio
+    import time
+
+    from .drivers.netmaker import NetmakerApi, NetmakerError, online
+    url = args.url
+    if not url:
+        inv_path = args.inventory or "/site/inventory.yaml"
+        if Path(inv_path).is_file():
+            url = load_inventory(inv_path).data.netmaker.url
+    if not url:
+        print("Give the gateway's API address: --url https://api.<your netmaker domain>")
+        return 1
+    api = NetmakerApi(url, args.token_ref)
+    if api.missing():
+        print(f"Not set up: add {args.token_ref} to secrets.env (the test install: dev-secrets/secrets.env).")
+        return 1
+    try:
+        nodes = asyncio.run(api.get(0.0))
+    except NetmakerError as e:
+        print(f"Could not read it: {e}")
+        return 1
+    wall = time.time()
+    print(f"Netmaker at {url} - {len(nodes)} nodes, {sum(1 for n in nodes if online(n, wall))} online")
+    print("(put these host names in the Groups sheet, column Netmaker host)")
+    for n in sorted(nodes, key=lambda x: (x["host"].lower(), x["network"])):
+        age = f"{(wall - n['checkin']) / 60:.0f} min ago" if n["checkin"] else "never"
+        print(f"  {n['host'] or '(no name)':28} network {n['network']:16} {'online ' if online(n, wall) else 'OFFLINE'}"
+              f"  last check-in {age:>12}  {n['address']}  {n['version']}")
+    return 0
+
+
+def cmd_probe_starlink(args) -> int:
+    import asyncio
+
+    from .drivers.starlink import StarlinkError, get_status
+    target = args.target if ":" in args.target else f"{args.target}:9201"
+    try:
+        metrics, info = asyncio.run(get_status(target))
+    except StarlinkError as e:
+        print(f"Could not read it: {e}")
+        return 1
+    print(f"Starlink dish through {target} - gRPC-Web get_status")
+    _print_read(metrics, info)
     return 0
 
 
@@ -438,7 +498,8 @@ def main(argv: list[str] | None = None) -> int:
 
     ps = sub.add_parser("probe-snmp", help="what the SNMP reader gets from one device")
     ps.add_argument("host")
-    ps.add_argument("--type", required=True, choices=("rajant", "tachyon", "switch"))
+    ps.add_argument("--type", required=True, choices=("rajant", "tachyon", "switch", "cell_modem"))
+    ps.add_argument("--model", help="cell_modem: its model, which picks the reader (RV55, MikroTik, OpenWrt)")
     ps.add_argument("--inventory", help="for this device's logins (default: /site/inventory.yaml, else the standard names)")
     ps.add_argument("--walk", help="dump everything under this OID instead (e.g. a vendor subtree)")
     ps.add_argument("--max", type=int, default=500, help="most values for --walk")
@@ -457,6 +518,14 @@ def main(argv: list[str] | None = None) -> int:
     pi.add_argument("--password-ref", help="secrets.env name of its password")
     pi.add_argument("--out", help="also save the layout to this file")
     pi.set_defaults(fn=cmd_probe_influx)
+    pn = sub.add_parser("probe-netmaker", help="the Netmaker hosts and their tunnel status (names only, no keys)")
+    pn.add_argument("--url", help="the gateway's API address (default: the inventory's netmaker.url)")
+    pn.add_argument("--inventory")
+    pn.add_argument("--token-ref", default="NETMAKER_TOKEN", help="secrets.env name of the Netmaker token")
+    pn.set_defaults(fn=cmd_probe_netmaker)
+    pst = sub.add_parser("probe-starlink", help="what the Starlink reader gets from the dish through the router's NAT")
+    pst.add_argument("target", help="router address:NAT port that leads to the dish's 192.168.100.1:9201")
+    pst.set_defaults(fn=cmd_probe_starlink)
 
     hp = sub.add_parser("hash-password", help="admin password from stdin -> scrypt hash for secrets.env")
     hp.set_defaults(fn=cmd_hash_password)

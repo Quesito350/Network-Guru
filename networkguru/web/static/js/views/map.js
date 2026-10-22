@@ -1,11 +1,13 @@
 // Map page: a pin per located site location (trailers, towers, buildings, ...) coloured by its live
 // status, the vehicles where their GNSS last put them, and the 60 GHz links as lines. Hover for the
 // reason, click for the location's page. Positions come from the Groups sheet (Lat / Lon, filled
-// from the Rajant snapshot); vehicles from their GNSS component (simulated until the Mobius reader).
+// from the Rajant snapshot); vehicles from their GNSS component, else from lat / lon fields Mobius
+// has for them (0.8.0). What has gone quiet is left out, as in Live (quiet.js).
 
 import { get } from "../api.js";
 import { h, s, setClass, setText } from "../dom.js";
 import { STATUS_LABEL, statusName } from "../fmt.js";
+import { isQuiet, setShowHidden, showHidden } from "../quiet.js";
 import { dot } from "../status.js";
 import { node, store, window_ } from "../store.js";
 import { hideTip, showTip } from "../widgets/chart.js";
@@ -32,8 +34,11 @@ function vehiclePos(g) {
     const i = node(c.id).i || {};
     if (typeof i.lat === "number" && typeof i.lon === "number") return { lat: i.lat, lon: i.lon };
   }
-  return null;
+  const m = store.mobius?.positions?.[g.id];
+  return m ? { lat: m.lat, lon: m.lon } : null;
 }
+
+const away = (g) => isQuiet(g, { always: true }) && !showHidden("map");
 
 export function mapView(root, nav) {
   const head = h("div", { class: "page-head" }, h("h1", { text: "Map" }), h("span", { class: "sub", text: store.inv.site.name }));
@@ -103,12 +108,13 @@ export function mapView(root, nav) {
     for (const g of places) {
       const { x, y } = project(g.lat, g.lon);
       pinOf[g.id].btn.style.transform = `translate(${x}px, ${y}px)`;
+      pinOf[g.id].btn.classList.toggle("hidden", away(g));
     }
     for (const g of vehicles) {
       const pos = vehiclePos(g);
       const pin = pinOf[g.id];
       if (!pin) continue;
-      pin.btn.classList.toggle("hidden", !pos);
+      pin.btn.classList.toggle("hidden", !pos || away(g));
       if (pos) {
         const { x, y } = project(pos.lat, pos.lon);
         pin.btn.style.transform = `translate(${x}px, ${y}px)`;
@@ -131,18 +137,25 @@ export function mapView(root, nav) {
   }
 
   function fillSide() {
-    const missing = groups.filter((g) => (g.tab === "vehicles" ? !vehiclePos(g) : !located(g)));
+    const quiet = groups.filter((g) => isQuiet(g, { always: true }));
+    const hiding = !showHidden("map");
+    const missing = groups.filter((g) => (g.tab === "vehicles" ? !vehiclePos(g) : !located(g)) && !(hiding && quiet.includes(g)));
     side.replaceChildren(
       h("h2", { text: "Legend" }),
       h("ul", { class: "plain map-legend" }, ...["ok", "warning", "critical", "offline", "unknown"].map((st) =>
         h("li", {}, dot(["ok", "unknown", "offline", "warning", "critical"].indexOf(st)), STATUS_LABEL[st]))),
-      h("p", { class: "muted small", text: "Lines are 60 GHz links. Vehicles show where their GNSS last put them." }),
+      h("p", { class: "muted small", text: "Lines are 60 GHz links. Vehicles show where their GNSS (or Mobius) last put them." }),
       h("h2", { text: `Not on the map (${missing.length})` }),
       missing.length ? h("ul", { class: "plain map-missing" }, ...missing.map((g) =>
         h("li", {}, dot(node(g.id).s), h("a", { href: `#/${g.tab}/${g.id}`, text: g.name,
           onclick: (e) => { e.preventDefault(); nav(`#/${g.tab}/${g.id}`); } }))))
         : h("p", { class: "muted small", text: "Everything has a position." }),
-      h("p", { class: "muted small", text: "Positions: the Lat / Lon columns on the Groups sheet of devices.xlsx." }));
+      h("p", { class: "muted small", text: "Positions: the Lat / Lon columns on the Groups sheet of devices.xlsx." }),
+      quiet.length ? h("div", { class: "map-quiet" },
+        h("h2", { text: `Gone quiet (${quiet.length})` }),
+        h("p", { class: "muted small", text: hiding ? "No answer for a while - left off the map, as in Live." : "Shown on the map." }),
+        h("button", { type: "button", class: "btn", text: hiding ? "Show them" : "Hide them",
+          onclick: () => { setShowHidden("map", hiding); fillSide(); map?.render(); } })) : null);
   }
 
   let alive = true;

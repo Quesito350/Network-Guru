@@ -1,6 +1,7 @@
 """Minimal protobuf wire-format reader (no protobuf library, no .proto files needed).
 
-Used to pull a few known fields out of Rajant BC|Commander snapshots. Callers ask for
+Used to pull a few known fields out of Rajant BC|Commander snapshots and the Starlink dish's
+status (drivers/starlink.py). Callers ask for
 fields by number path; nothing else in the message is decoded or kept.
 """
 
@@ -106,6 +107,11 @@ def field(num: int, value) -> bytes:
         return _enc_varint((num << 3) | 1) + struct.pack("<d", value)
     data = value.encode("utf-8") if isinstance(value, str) else bytes(value)
     return _enc_varint((num << 3) | 2) + _enc_varint(len(data)) + data
+
+
+def float32(num: int, value: float) -> bytes:
+    """A protobuf `float` (wire type 5), as the Starlink dish sends its numbers."""
+    return _enc_varint((num << 3) | 5) + struct.pack("<f", value)
 
 
 def message(*parts: bytes) -> bytes:

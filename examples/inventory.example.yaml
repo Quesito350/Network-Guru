@@ -17,6 +17,10 @@ site:
   lat: 40.76
   lon: -111.89
 
+netmaker:                                   # WireGuard tunnels on the Netmaker gateway (token_ref: a secrets.env name)
+  url: https://netmaker.example.com
+  token_ref: NETMAKER_TOKEN
+
 mobius:
   influx_url: http://10.200.1.10:8086      # Mobius InfluxDB (probe it before 0.4 drivers)
   version: auto
@@ -120,7 +124,7 @@ infrastructure:
     devices:
       - {id: t47-bc, type: rajant, name: Rajant FE1, model: FE1-2255X, host: 10.200.3.13}
       - {id: t47-gx, type: victron_cerbo, name: Cerbo GX, host: 10.200.3.14}
-      - {id: t47-starlink, type: starlink, name: Starlink, target: "10.200.3.14:9200", sim: {obstruction: 1.4}}
+      - {id: t47-starlink, type: starlink, name: Starlink, target: "10.200.3.20:9201", sim: {obstruction: 1.4}}   # router NAT -> dish 192.168.100.1:9201
     sim: {battery_wh: 9600, pv_peak_w: 720}
   - id: trailer-48
     name: Trailer 48
@@ -141,6 +145,11 @@ infrastructure:
       - {id: t49-bc, type: rajant, name: Rajant FE1, model: FE1-2255X, host: 10.200.3.18}
       - {id: t49-gx, type: victron_cerbo, name: Cerbo GX, host: 10.200.3.19}
     sim: {battery_wh: 9600, pv_peak_w: 720}
+  - id: netmaker-gateway
+    name: Netmaker gateway
+    kind: core
+    devices:
+      - {id: netmaker-api, type: netmaker, name: Netmaker API, host: netmaker.example.com, checks: ["tcp:443"]}
 
 vehicles:
   - id: autocar-2845
@@ -151,6 +160,8 @@ vehicles:
     components:
       - {id: ac2845-radio, type: rajant, name: Rajant ME4, model: ME4-2450R, host: 10.200.4.10}
       - {id: ac2845-router, type: mikrotik, name: MikroTik hAP lite, model: RB941-2nD, host: 10.200.4.11}
+      - {id: ac2845-cell, type: cell_modem, name: Sierra XR80 (public LTE), model: XR80, serial: XR80-DEMO-0001}
+      - {id: ac2845-wg, type: wireguard, name: WireGuard, netmaker_host: autocar-2845}
       - {id: ac2845-vcu, type: vcu, name: VCU}
       - {id: ac2845-gnss, type: gnss, name: GNSS}
       - {id: ac2845-vai, type: vai, name: VAI}
@@ -186,6 +197,7 @@ vehicles:
     components:
       - {id: tundra-radio, type: rajant, name: Rajant ME4, model: ME4-2450R, host: 10.200.4.16}
       - {id: tundra-router, type: mikrotik, name: MikroTik hAP lite, model: RB941-2nD, host: 10.200.4.17, sim: {wireguard: true}}
+      - {id: tundra-wg, type: wireguard, name: WireGuard, netmaker_host: tundra-hap}
       - {id: tundra-vcu, type: vcu, name: VCU}
       - {id: tundra-gnss, type: gnss, name: GNSS}
   - id: jd-8r
@@ -217,8 +229,9 @@ vehicles:
     access: celona
     expected_online: always                   # 24/7 yard: not responding = Critical, not just Offline
     components:
-      - {id: t1-modem, type: cell_modem, name: Celona modem, host: 10.200.4.22}
+      - {id: t1-modem, type: cell_modem, name: Celona modem, model: Sierra RV55, host: 10.200.4.22}
       - {id: t1-router, type: mikrotik, name: MikroTik RB4011, model: RB4011iGS+, host: 10.200.4.23}
+      - {id: t1-wg, type: wireguard, name: WireGuard, netmaker_host: t1-rb4011}
       - {id: t1-vcu, type: vcu, name: VCU}
       - {id: t1-gnss, type: gnss, name: GNSS}
       - {id: t1-vai, type: vai, name: VAI}

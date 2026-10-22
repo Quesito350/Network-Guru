@@ -87,7 +87,13 @@ RAJANT_SNMP_AUTH=...
 RAJANT_SNMP_PRIV=...
 TACHYON_SNMP_RO=...
 SWITCH_SNMP_RO=...
+CELL_SNMP_RO=...
+ALMS_CLIENT_ID=...
+ALMS_CLIENT_SECRET=...
+NETMAKER_TOKEN=...
 ```
+
+Only the lines for devices the site has are needed (the Admin page lists every name the inventory uses, set or not): `CELL_SNMP_RO` for Sierra RV55 / MikroTik / OpenWrt modems, the two `ALMS_...` for Sierra XR80 / XR90 modems, `NETMAKER_TOKEN` for the WireGuard tunnels.
 
 Then try one device of each kind before looking at the dashboard:
 
@@ -95,12 +101,18 @@ Then try one device of each kind before looking at the dashboard:
 docker compose exec app python -m networkguru probe-snmp <switch IP> --type switch
 docker compose exec app python -m networkguru probe-snmp <Rajant IP> --type rajant
 docker compose exec app python -m networkguru probe-modbus <Cerbo IP>
+docker compose exec app python -m networkguru probe-snmp <modem IP> --type cell_modem --model RV55
+docker compose exec app python -m networkguru probe-starlink <trailer router IP>:<NAT port>
+docker compose exec app python -m networkguru probe-netmaker --url https://<netmaker api address>
 docker compose exec app python -m networkguru probe-influx --url http://<Mobius server>:8086 --out /data/influx-layout.txt
 docker compose cp app:/data/influx-layout.txt .
 ```
 
 - Each probe prints the values it got, or why it could not (wrong login, no answer, port closed).
-- `probe-influx` lists the Mobius database's names only - send `influx-layout.txt` so the next build can map the VCU, GNSS and VAI values.
+- `probe-influx` lists the Mobius database's names only - send `influx-layout.txt` so the next build can map the VCU, GNSS and VAI values. Without the mapping, each vehicle's page already shows everything Mobius has for it (**Mobius data**), and the Mobius Server's page lists the names Mobius uses that are not in the inventory.
+- `probe-netmaker` lists the Netmaker host names: type each one into the **Netmaker host** column of its vehicle / location on the Groups sheet (and the API address into Sites → **Netmaker URL**), then rebuild the inventory.
+- `probe-starlink` needs the router's dst-nat to the dish's **192.168.100.1:9201**; that `router IP:port` goes into the Starlink row's **API address**.
+- Send the `probe-snmp` output of one Rajant and one Tachyon (it has no logins in it): the Tachyon file does not say the units of rx power and tx rate, so they are checked against the Tachyon's own page.
 - On the Cerbo GX, switch Modbus TCP on (Settings → Services → Modbus TCP) and note the solar charger's unit ID for the **Modbus unit** column of the Devices sheet.
 
 ### A6. Admin sign-in

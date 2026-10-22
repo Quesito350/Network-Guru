@@ -54,6 +54,7 @@ class Runtime:
                               if settings.dev_admin_password else None)
         self.updates: UpdateManager | None = None
         self.reports: ReportService | None = None
+        self.mobius = None                    # live mode: the Mobius explorer (drivers/mobius_explore.py)
 
     @property
     def docker(self) -> bool:
@@ -105,6 +106,10 @@ class Runtime:
                 self.notes.append(why[0].upper() + why[1:] + ".")
             self.scheduler = Scheduler(self.pipeline, pollers, self.events)
             self.tasks.append(asyncio.create_task(self.scheduler.run()))
+            if self.inv.data.mobius.influx_url:       # everything else Mobius has, for the pages
+                from .drivers.mobius_explore import MobiusExplorer
+                self.mobius = MobiusExplorer(self.inv)
+                self.tasks.append(asyncio.create_task(self.mobius.run()))
 
     async def _open_tsdb(self):
         url = self.settings.vm_url

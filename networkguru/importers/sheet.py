@@ -16,11 +16,12 @@ from pathlib import Path
 
 from ..catalog import TYPES
 
-SITE_COLS = ["Site", "Name", "Time zone", "Lat", "Lon", "Mobius InfluxDB URL", "Subnets", "Infrastructure subnet",
-             "Notes"]
-GROUP_COLS = ["Site", "Group", "Kind", "Mobius asset", "Access", "Expected online", "Has VAI", "Lat", "Lon", "Notes"]
-DEVICE_COLS = ["Site", "Group", "Type", "Name", "Model", "Serial", "MAC", "Address", "IP", "Link", "Role",
-               "Install RSSI", "Switch port", "Firmware", "Monitor", "Modbus unit", "Notes"]
+SITE_COLS = ["Site", "Name", "Time zone", "Lat", "Lon", "Mobius InfluxDB URL", "Netmaker URL", "Subnets",
+             "Infrastructure subnet", "Notes"]
+GROUP_COLS = ["Site", "Group", "Kind", "Mobius asset", "Netmaker host", "Access", "Expected online", "Has VAI",
+              "Lat", "Lon", "Notes"]
+DEVICE_COLS = ["Site", "Group", "Type", "Name", "Model", "Serial", "MAC", "Address", "IP", "API address", "Link",
+               "Role", "Install RSSI", "Switch port", "Firmware", "Monitor", "Modbus unit", "Notes"]
 KINDS = ["vehicle", "trailer", "cow", "tower", "building", "repeater", "core", "server", "client"]
 LISTS = {"Kind": KINDS, "Type": sorted(TYPES), "Address": ["static", "dhcp"], "Role": ["master", "slave"],
          "Monitor": ["yes", "no"], "Has VAI": ["yes", "no"], "Access": ["rajant", "celona"]}
@@ -40,6 +41,15 @@ README = [
     "Modbus unit (Cerbo GX): the solar charger's unit ID, for its charger state and daily yield - on the Cerbo:",
     "  Settings > Services > Modbus TCP > Available services. Without it the battery, PV and load values still come.",
     "Vehicles with a Mobius asset name get VCU and GNSS checks (and VAI when Has VAI = yes) automatically.",
+    "",
+    "WireGuard (Netmaker): put the gateway's API address in Sites > Netmaker URL (e.g. https://api.example.com) and,",
+    "  on each vehicle / location that has a tunnel, its host name as Netmaker shows it in Groups > Netmaker host.",
+    "  The token goes only in the server's secrets.env (NETMAKER_TOKEN). probe-netmaker lists the host names.",
+    "Starlink: a Devices row with Type starlink in the group it serves, and API address = the router's address and",
+    "  the NAT port that leads to the dish's 192.168.100.1:9201 (e.g. 10.200.3.1:9201).",
+    "Cell modems: Type cell_modem; the Model picks how it is read - RV55 / RV50 / MP70 (Sierra, SNMP), XR80 / XR90",
+    "  (Sierra, through ALMS - give the Serial), MikroTik (LtAP, Chateau ...: SNMP) or OpenWrt (SNMP + the ng-cell",
+    "  script). Private (Celona) or public carrier makes no difference.",
     "",
     "Never put passwords, SNMP communities, keys or tokens in this file.",
     "Rebuild the inventory after editing:  python run.py build-inventory devices.xlsx --site <site>",

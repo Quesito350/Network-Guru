@@ -7,6 +7,7 @@ import { fmtAgo, fromLocalInput, setup, STATUS_LABEL, toLocalInput, tz } from ".
 import { badge, countsLine, dot } from "./status.js";
 import { modal } from "./modal.js";
 import { errorButton, watchErrors } from "./problem.js";
+import { startMobiusSummary } from "./quiet.js";
 import { indexInventory, node, notify, store, subscribe, window_ } from "./store.js";
 import { initUpdates } from "./updates.js";
 import { adminView } from "./views/admin.js";
@@ -57,8 +58,10 @@ export function nav(href) {
 }
 
 function setTimeQuery() {
-  const path = location.hash.split("?")[0] || "#/vehicles";
-  location.hash = path + queryString();
+  const [path, query] = location.hash.split("?");
+  const show = new URLSearchParams(query || "").get("show");      // keep a tile filter across Live / History
+  const qs = queryString();
+  location.hash = (path || "#/vehicles") + (show ? (qs ? `${qs}&show=${show}` : `?show=${show}`) : qs);
 }
 
 function render(force = false) {
@@ -338,6 +341,7 @@ async function main() {
   window.addEventListener("hashchange", () => render());
   connectLive();
   render();
+  startMobiusSummary();
   setInterval(tickConn, 1000);
   updateEventCount();
   setInterval(updateEventCount, 60000);

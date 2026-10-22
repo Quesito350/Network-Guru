@@ -1,8 +1,10 @@
-// Tab overview: status tiles, the list of current problems, and a card per vehicle / desk / location.
+// Tab overview: status tiles (each one filters the cards), the list of current problems, and a card
+// per vehicle / desk / location. In Live, groups that have gone quiet are left out (quiet.js).
 
 import { get } from "../api.js";
 import { clear, h, setClass, setText } from "../dom.js";
-import { fmtPct, fmtValue, fmtWhen, metricLevel, statusName, STATUS_LABEL, typeSpec } from "../fmt.js";
+import { fmtAgo, fmtPct, fmtValue, fmtWhen, metricLevel, statusName, STATUS_LABEL, typeSpec } from "../fmt.js";
+import { isQuiet, quietText, setShowHidden, showHidden } from "../quiet.js";
 import { badge, dot, updateBadge, updateDot } from "../status.js";
 import { node, rangeLabel, store, window_ } from "../store.js";
 import { miniPath } from "../widgets/path.js";
@@ -44,12 +46,16 @@ function baseCard(g, nav) {
   const spark = h("div", { class: "spark" });
   const foot = h("span", { class: "foot-txt" });
   const hist = h("div", { class: "hist-row hidden" });
+  const mob = h("div", { class: "card-mobius hidden" });
   const el = h("a", { class: "card", href: `#/${g.tab}/${g.id}` },
-    h("div", { class: "card-top" }, h("div", { class: "name", text: g.name, title: g.name }), b), sub, why);
+    h("div", { class: "card-top" }, h("div", { class: "name", text: g.name, title: g.name }), b), sub, why, mob);
   el.addEventListener("click", (e) => { e.preventDefault(); nav(`#/${g.tab}/${g.id}`); });
   const footEl = h("div", { class: "card-foot" }, spark, foot);
-  return { el, b, why, sub, spark, foot, hist, footEl };
+  return { el, b, why, sub, spark, foot, hist, footEl, mob };
 }
+
+const STATES = ["critical", "warning", "ok", "offline", "unknown"];
+const NOUN = { vehicles: "vehicles", control: "stations", infrastructure: "locations" };
 
 function vehicleCard(g, nav) {
   const c = baseCard(g, nav);
@@ -157,29 +163,53 @@ export function overviewView(root, tabId, nav) {
   const groups = tab.groups.map((g) => store.groups[g.id]);
   const make = tabId === "vehicles" ? vehicleCard : tabId === "control" ? controlCard : locationCard;
   const cards = groups.map((g) => ({ g, card: make(g, nav) }));
-  const tiles = h("div", { class: "tiles" });
+  const tiles = h("div", { class: "tiles", role: "group", "aria-label": "Show only one status" });
   const tilesCap = h("div", { class: "tiles-cap" });
   const issues = h("ul");
   const issuesBox = h("section", { class: "issues" }, h("h2", { text: "Needs attention now" }), issues);
   const sub = h("span", { class: "sub" });
+  const params = new URLSearchParams(location.hash.split("?")[1] || "");
+  const show = STATES.includes(params.get("show")) ? params.get("show") : null;    // the tile filter
+  const filterBar = h("div", { class: "filter-bar hidden" });
+  const quietBar = h("div", { class: "quiet-bar hidden" });
+  const empty = h("p", { class: "empty-filter hidden" });
   let rangeWorst = null;              // History: worst status per group over the range
+  let hiddenIds = new Set();          // Live: groups left out because they went quiet
   root.append(
     h("div", { class: "page-head" }, h("h1", { text: TAB_TITLE[tabId] }), sub),
-    tilesCap, tiles, issuesBox,
+    tilesCap, tiles, filterBar, quietBar, issuesBox, empty,
     h("div", { class: "grid" }, cards.map((x) => x.card.el)));
 
+  // a tile is a filter: the URL keeps it (#/vehicles?show=critical), so a refresh or a link does too
+  function setShow(st) {
+    const [path, query] = location.hash.split("?");
+    const q = new URLSearchParams(query || "");
+    if (st) q.set("show", st);
+    else q.delete("show");
+    const qs = q.toString();
+    location.hash = (path || "#/" + tabId) + (qs ? `?${qs}` : "");
+  }
+
   const tileEls = {};
-  for (const st of ["critical", "warning", "ok", "offline", "unknown"]) {
+  for (const st of STATES) {
     const val = h("div", { class: "val num" });
-    const el = h("div", { class: "tile" }, h("div", { class: "lbl" }, dot(st), STATUS_LABEL[st]), val);
+    const el = h("button", { type: "button", class: `tile${show === st ? " on" : ""}`, "aria-pressed": String(show === st),
+      title: show === st ? "Show all again" : `Show only ${STATUS_LABEL[st]}`, onclick: () => setShow(show === st ? null : st) },
+    h("div", { class: "lbl" }, dot(st), STATUS_LABEL[st]), val);
     tileEls[st] = { el, val };
     tiles.append(el);
+  }
+  if (show) {
+    filterBar.classList.remove("hidden");
+    filterBar.append(h("span", { text: `Showing ${STATUS_LABEL[show]} only` }),
+      h("button", { type: "button", class: "linkish", text: "Show all", onclick: () => setShow(null) }));
   }
 
   function updateIssues() {
     clear(issues);
     const rows = [];
     for (const g of groups) {
+      if (hiddenIds.has(g.id)) continue;
       const gn = node(g.id);
       for (const c of g.components) {
         const n = node(c.id);
@@ -205,20 +235,47 @@ export function overviewView(root, tabId, nav) {
 
   function update() {
     const counts = { ok: 0, warning: 0, critical: 0, offline: 0, unknown: 0 };
+    const hideQuiet = !showHidden(tabId);
+    const quiet = new Set(groups.filter((g) => isQuiet(g)).map((g) => g.id));
+    hiddenIds = hideQuiet ? quiet : new Set();
+    let shown = 0;
+    const now = Date.now() / 1000;
     for (const { g, card } of cards) {
       const n = node(g.id);
-      counts[statusName(rangeWorst ? rangeWorst[g.id] : n.s)] += 1;
+      const st = statusName(rangeWorst ? rangeWorst[g.id] : n.s);
+      const left = hiddenIds.has(g.id);
+      if (!left) counts[st] += 1;
+      const visible = !left && (!show || st === show);
+      if (visible) shown += 1;
+      card.el.classList.toggle("hidden", !visible);
+      card.el.classList.toggle("quiet", quiet.has(g.id));
       updateBadge(card.b, n.s);
       setClass(card.el, "s-", statusName(n.s));
-      setText(card.why, n.s === 0 ? "" : (n.r || []).slice(0, 2).join(" · "));
+      setText(card.why, quiet.has(g.id) ? `Hidden from Live when quiet: ${quietText(g)}`
+        : n.s === 0 ? "" : (n.r || []).slice(0, 2).join(" · "));
+      const mt = store.mobius?.groups?.[g.id];
+      card.mob.classList.toggle("hidden", !mt);
+      if (mt) setText(card.mob, `Mobius data ${fmtAgo(now - mt)}`);
       card.update();
     }
     for (const [k, t] of Object.entries(tileEls)) {
       setText(t.val, String(counts[k]));
-      t.el.classList.toggle("hidden", counts[k] === 0 && (k === "unknown" || k === "offline"));
+      t.el.classList.toggle("hidden", counts[k] === 0 && (k === "unknown" || k === "offline") && show !== k);
     }
-    setText(sub, `${groups.length} ${tabId === "vehicles" ? "vehicles" : tabId === "control" ? "stations" : "locations"} · ${rangeLabel()}`);
-    setText(tilesCap, rangeWorst ? `Worst status during the ${rangeLabel()} (Offline = not in service)` : "Status now");
+    const noun = NOUN[tabId];
+    setText(sub, `${groups.length - hiddenIds.size} ${noun}${hiddenIds.size ? ` (+${hiddenIds.size} hidden)` : ""} · ${rangeLabel()}`);
+    setText(tilesCap, rangeWorst ? `Worst status during the ${rangeLabel()} (Offline = not in service) - click one to show only those`
+      : "Status now - click one to show only those");
+    empty.classList.toggle("hidden", !show || shown > 0);
+    if (show) setText(empty, `No ${STATUS_LABEL[show]} ${noun} ${rangeWorst ? `during the ${rangeLabel()}` : "right now"}.`);
+    quietBar.classList.toggle("hidden", !quiet.size);
+    if (quiet.size) {
+      const mins = store.meta.hide_quiet?.min || 60;
+      const what = `${quiet.size} ${quiet.size === 1 ? noun.replace(/s$/, "") : noun} with no answer for over ${mins >= 120 ? `${Math.round(mins / 60)} hours` : `${mins} minute${mins === 1 ? "" : "s"}`}`;
+      quietBar.replaceChildren(h("span", { text: hideQuiet ? `${what} - hidden from Live.` : `${what} - shown (faded).` }),
+        h("button", { type: "button", class: "linkish", text: hideQuiet ? "Show them" : "Hide them",
+          onclick: () => { setShowHidden(tabId, hideQuiet); update(); } }));
+    }
     updateIssues();
   }
 
@@ -237,6 +294,7 @@ export function overviewView(root, tabId, nav) {
     try { res = await Promise.all(reqs); } catch (e) { console.error(e); return; }
     if (my !== gen) return;
     const [sp, av, st] = res;
+    if (w.live) rangeWorst = null;
     if (st) {
       rangeWorst = {};
       for (const g of groups) {

@@ -44,6 +44,7 @@ class FakeSnmpAgent(asyncio.DatagramProtocol):
         self.boots, self.t0 = 3, time.monotonic() - 1000
         self.transport = None
         self.port = 0
+        self.sent: list[str] = []          # every OID this agent answered with (privacy tests)
 
     engine = b"\x80\x00\x1f\x88\x80fake-engine"
 
@@ -68,6 +69,8 @@ class FakeSnmpAgent(asyncio.DatagramProtocol):
             if kind == S.GET:
                 tag, v = self.values.get(o, (S.NO_SUCH_INSTANCE, None))
                 out.append(S.seq(S.enc_oid(o), _value(tag, v)))
+                if o in self.values:
+                    self.sent.append(o)
                 continue
             cur = o
             for _ in range(reps if kind == S.GETBULK else 1):
@@ -77,6 +80,7 @@ class FakeSnmpAgent(asyncio.DatagramProtocol):
                     break
                 tag, v = self.values[nxt]
                 out.append(S.seq(S.enc_oid(nxt), _value(tag, v)))
+                self.sent.append(nxt)
                 cur = nxt
         return S.seq(*out)
 
@@ -215,6 +219,20 @@ class FakeInflux:
         if q.startswith("SHOW TAG VALUES") and meas:
             key = re.search(r'WITH KEY = "([^"]+)"', q).group(1)
             return [{"name": m.group(1), "columns": ["key", "value"], "values": [[key, v] for v in meas["tags"].get(key, [])]}]
+        if q.startswith("SELECT *") and meas:                   # the explorer: GROUP BY * ... LIMIT n
+            win = re.search(r"now\(\) - (\d+)m", q)
+            lim = re.search(r"LIMIT (\d+)", q)
+            pts = sorted(meas["points"], key=lambda p: -p[0])
+            if win:
+                pts = [p for p in pts if p[0] > time.time() - int(win.group(1)) * 60]
+            fields = list(meas["fields"])
+            series: dict = {}
+            for t, tags, vals in pts:
+                key = tuple(sorted(tags.items()))
+                ser = series.setdefault(key, {"name": m.group(1), "tags": dict(key), "columns": ["time", *fields], "values": []})
+                if not lim or len(ser["values"]) < int(lim.group(1)):
+                    ser["values"].append([t, *[vals.get(f) for f in fields]])
+            return list(series.values())
         if q.startswith("SELECT") and meas:
             fields = re.findall(r'"([^"]+)"', q.split(" FROM ")[0])
             group = re.search(r'GROUP BY "([^"]+)"', q)
@@ -231,3 +249,48 @@ class FakeInflux:
                             "values": [[t, *[vals.get(f) for f in fields]]]})
             return out
         return []
+
+
+# -- small JSON / HTTP servers (Netmaker, ALMS, the Starlink dish) -------------------
+class FakeHttp:
+    """routes: {(method, path): fn(handler, body) -> (status, headers, body bytes)}; every request is kept."""
+
+    def __init__(self, routes: dict):
+        self.routes, self.requests = routes, []
+        outer = self
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def _go(self, method):
+                n = int(self.headers.get("Content-Length") or 0)
+                body = self.rfile.read(n) if n else b""
+                path = urlsplit(self.path).path
+                outer.requests.append({"method": method, "path": self.path, "headers": dict(self.headers), "body": body})
+                fn = outer.routes.get((method, path))
+                status, headers, out = fn(self, body) if fn else (404, {}, b"not found")
+                self.send_response(status)
+                for k, v in headers.items():
+                    self.send_header(k, v)
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+
+            def do_GET(self):
+                self._go("GET")
+
+            def do_POST(self):
+                self._go("POST")
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.port = self.server.server_address[1]
+        self.url = f"http://127.0.0.1:{self.port}"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.server.shutdown()
+
+
+def json_reply(obj, status: int = 200):
+    return lambda _h, _b: (status, {"Content-Type": "application/json"}, json.dumps(obj).encode())

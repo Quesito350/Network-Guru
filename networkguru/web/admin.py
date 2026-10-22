@@ -104,8 +104,15 @@ async def logout(request: Request, response: Response):
 
 def secret_list(r) -> list[dict]:
     """Which secrets are set - names only, never values."""
-    return [{"name": n, "label": label, "set": bool(secret(n)) or (n == HASH_ENV and r.auth.configured)}
-            for n, label in SECRET_NAMES]
+    out = [{"name": n, "label": label, "set": bool(secret(n)) or (n == HASH_ENV and r.auth.configured)}
+           for n, label in SECRET_NAMES]
+    known = {n for n, _l in SECRET_NAMES}
+    refs = {ref for c in r.inv.comps.values() for ref in c.secret_refs().values()}
+    if r.inv.data.netmaker.url and r.inv.data.netmaker.token_ref:
+        refs.add(r.inv.data.netmaker.token_ref)
+    out += [{"name": n, "label": "Device login (named in the inventory)", "set": bool(secret(n))}
+            for n in sorted(refs - known)]
+    return out
 
 
 @router.get("/status")

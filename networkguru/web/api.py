@@ -74,7 +74,32 @@ async def meta(request: Request):
             "backfill": {"pct": round(r.progress.pct, 1), "done": r.progress.done},
             "history_days": r.settings.history_days,
             "statuses": STATUS_NAMES, "catalog": catalog_json(), "thresholds": r.rules.thresholds_json(),
-            "enum_rules": r.rules.enum_rules_json()}
+            "enum_rules": r.rules.enum_rules_json(), "started": r.started,
+            "hide_quiet": {"min": r.settings_state.get("hide_quiet_min", 60),
+                           "tabs": r.settings_state.get("hide_quiet_tabs", [])},
+            "mobius_explore": r.mobius is not None}
+
+
+@router.get("/mobius/summary")
+async def mobius_summary(request: Request):
+    """Per group: when Mobius last had data for it (Live's "gone quiet" check, the cards), map positions."""
+    m = rt(request).mobius
+    return m.summary() if m else {"enabled": False}
+
+
+@router.get("/mobius")
+async def mobius_all(request: Request):
+    """Everything Mobius reports: matched groups, what is not in the inventory, site-wide values."""
+    m = rt(request).mobius
+    return m.everything() if m else {"enabled": False}
+
+
+@router.get("/mobius/{group_id}")
+async def mobius_group(request: Request, group_id: str):
+    r = rt(request)
+    if group_id not in r.inv.groups:
+        raise HTTPException(404, "unknown group")
+    return r.mobius.group(group_id) if r.mobius else {"enabled": False}
 
 
 @router.get("/changelog")

@@ -54,7 +54,11 @@ metrics:
   router_supply_v:        {low_warn: 11.5, low_crit: 10.5}
   wg_handshake_age_s:     {warn: 180, crit: 600}
 
-  # cellular modem on a vehicle
+  # WireGuard on the Netmaker gateway (Netmaker itself calls a node offline after 10 min)
+  wg_checkin_age_s:       {warn: 300}
+
+  # cell modem (no rules yet on RSRQ / RSSI, nor on Rajant channel busy / noise: watch the values first)
+  cell_connected:         {zero: warning}
   cell_rsrp_dbm:          {low_warn: -105, low_crit: -115}
   cell_sinr_db:           {low_warn: 3, low_crit: 0}
 

@@ -94,7 +94,7 @@ def test_which_components_get_checked():
         if c.type in ("vcu", "gnss", "vai", "mobius_ntrip"):
             assert unchecked[cid] == NOT_CHECKED and cid not in polled
     pollers, unchecked = reach_pollers(inv, can_ping=False)               # ping not permitted on this host
-    assert {p.comp_ids[0] for p in pollers} == {"core-starlink", "t47-starlink", "mobius-svc", "mobius-influx", "gnss-base"}
+    assert {p.comp_ids[0] for p in pollers} == {"core-starlink", "t47-starlink", "mobius-svc", "mobius-influx", "gnss-base", "netmaker-api"}
     assert "ping is not permitted" in unchecked["t46-bc"]
 
 

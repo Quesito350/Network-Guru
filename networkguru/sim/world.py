@@ -385,6 +385,9 @@ class SimWorld:
                 "ping_rtt_ms": rtt, "ping_loss_pct": loss, "mobius_radio_rtt_ms": rtt + 1.5 * rnd(s, math.floor(t / 10), 2),
                 "rajant_temp_c": self.ambient(t) + 24 + 3 * vnoise(s + 1, t, 1800),
                 "rajant_peers": 2 + round(1.5 * (1 + vnoise(s + 2, t, 600))),
+                "rajant_busy_pct": 18 + 10 * (1 + vnoise(s + 7, t, 300)) + (30 if bad else 0),
+                "rajant_noise_dbm": -95 + 2 * vnoise(s + 8, t, 900) + (8 if bad else 0),
+                "rajant_drop_pps": (2 + 8 * rnd(s, math.floor(t / 20))) if bad else 0.2 * (1 + vnoise(s + 9, t, 60)),
                 "if_rx_bps": 0.4e6 * (1.2 + vnoise(s + 3, t, 120)), "if_tx_bps": tx,
                 "uptime_s": self._uptime(s, t, 0.4)}, info)
         if self.loc_down(gid, t):
@@ -400,6 +403,9 @@ class SimWorld:
             "rajant_temp_c": self.ambient(t) + 18 + 3 * fbm(s + 1, t, 3600),
             "rajant_input_v": 53.6 + 0.25 * vnoise(s + 2, t, 900),
             "rajant_peers": max(1, round(float(c.sim.get("peers", 4)) + 0.4 * active + 0.6 * vnoise(s + 4, t, 900))),
+            "rajant_busy_pct": 12 + 4 * active + 6 * (1 + vnoise(s + 7, t, 600)),
+            "rajant_noise_dbm": -97 + 2 * vnoise(s + 8, t, 1800),
+            "rajant_drop_pps": 0.1 * active * (1 + vnoise(s + 9, t, 120)),
             "if_rx_bps": (0.3 + 0.8 * active * (0.6 + 0.4 * vnoise(s + 5, t, 300))) * 1e6,
             "if_tx_bps": (0.2 + 0.3 * active * (0.6 + 0.4 * vnoise(s + 6, t, 300))) * 1e6,
             "uptime_s": self._uptime(s, t)}, info)
@@ -434,11 +440,19 @@ class SimWorld:
             return self._down(c, t)
         d = self.veh_dist(gid, t)
         bad = self.veh_bad(gid, t) or degrade
+        rsrp = -82 - 22 * d - (12 if bad else 0) + 2 * vnoise(s + 1, t, 60)
+        private = self.inv.groups[gid].access == "celona"
         return self._ok(c, t, {
             "ping_rtt_ms": (28 + 14 * d + 3 * abs(fbm(s, t, 60))) * (6 if bad else 1),
             "ping_loss_pct": 6.0 if bad else 0.0,
-            "cell_rsrp_dbm": -82 - 22 * d - (12 if bad else 0) + 2 * vnoise(s + 1, t, 60),
-            "cell_sinr_db": 22 - 14 * d - (8 if bad else 0) + 1.5 * vnoise(s + 2, t, 60)})
+            "cell_rsrp_dbm": rsrp,
+            "cell_sinr_db": 22 - 14 * d - (8 if bad else 0) + 1.5 * vnoise(s + 2, t, 60),
+            "cell_rsrq_db": -8 - 5 * d - (4 if bad else 0) + 0.8 * vnoise(s + 3, t, 60),
+            "cell_rssi_dbm": rsrp + 24,
+            "cell_connected": 1,
+            "cell_temp_c": self.ambient(t) + 18 + 2 * vnoise(s + 4, t, 900)},
+            {"operator": "Celona (private LTE)" if private else "Carrier LTE", "technology": "LTE",
+             "band": "48" if private else "66"})
 
     def _s_vcu(self, c, gid, t, degrade):
         s = self.seed[c.id]
@@ -575,6 +589,7 @@ class SimWorld:
             "tachyon_rssi_dbm": rssi, "tachyon_remote_rssi_dbm": far - drop + 1.2 * vnoise(s + 3, t, 300),
             "tachyon_snr_db": snr, "tachyon_tx_mcs": mcs, "tachyon_phy_rate_mbps": 2600 * (mcs + 1) / 13,
             "tachyon_radio_temp_c": self.ambient(t) + 26 + 2 * vnoise(s + 4, t, 900),
+            "tachyon_cpu_pct": 14 + 8 * (1 + vnoise(s + 5, t, 300)), "tachyon_mem_pct": 41 + 2 * vnoise(s + 6, t, 3600),
             "ping_rtt_ms": rtt, "ping_loss_pct": loss}, info)
 
     def _s_switch(self, c, gid, t, degrade):
@@ -699,6 +714,25 @@ class SimWorld:
         rtt, loss = self._ping(s, t, 3.5, degrade)
         return self._ok(c, t, {"ping_rtt_ms": rtt, "ping_loss_pct": loss,
                                "tcp_ms": 3 + 2 * rnd(s, math.floor(t / 10), 5)})
+
+    def _s_wireguard(self, c, gid, t, degrade):
+        """A WireGuard tunnel as the Netmaker gateway sees it: it checks in while its machine runs."""
+        s = self.seed[c.id]
+        tab = self.inv.group_tab[gid]
+        if (tab == "vehicles" and not self.veh_link(gid, t)) or (tab == "infrastructure" and self.loc_down(gid, t)):
+            return CompResult(c.id, t, False, error=f"Netmaker: last check-in {11 + round(5 * rnd(s, 1))} min ago")
+        info = {"netmaker_network": "site-vpn", "vpn_address": f"10.200.250.{10 + s % 200}", "netclient": "v0.30.0",
+                "os": "linux"}
+        return self._ok(c, t, {"wg_checkin_age_s": (t + 60 * rnd(s, 9)) % 60 + (90 if degrade else 0)}, info)
+
+    def _s_netmaker(self, c, gid, t, degrade):
+        s = self.seed[c.id]
+        tunnels = [x for x in self.inv.comps.values() if x.type == "wireguard"]
+        up = sum(1 for x in tunnels if self.sample_cached(x.id, t).reachable)
+        rtt, loss = self._ping(s, t, 28.0, degrade)
+        return self._ok(c, t, {"netmaker_nodes": float(len(tunnels) + 1), "netmaker_nodes_online": float(up + 1),
+                               "ping_rtt_ms": rtt, "ping_loss_pct": loss, "tcp_ms": rtt + 9},
+                        {"not_in_inventory": "spare-laptop"})
 
     def _s_host(self, c, gid, t, degrade):
         s = self.seed[c.id]

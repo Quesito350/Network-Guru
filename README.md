@@ -111,8 +111,10 @@ python run.py build-inventory ..\sites\devices.xlsx --site mendon --out ..\sites
 
 ## Map, live checks and problem reports
 
+- **Status tiles** (top of each tab): click Critical, Warning, OK, Offline or Unknown to show only those cards; click it again or **Show all** for everything. The address keeps the choice (`#/vehicles?show=critical`), so a refresh or a shared link shows the same.
+- **What has gone quiet** drops off Live: a vehicle, station or location none of whose devices has answered for an hour (fresh Mobius data counts as an answer) leaves the Live cards, the tile counts and the map. Each tab says how many are hidden, with a **Show them** switch. History, the group's own page, alerts and the morning report keep it. **Admin → Live view** sets the time (0 = never) and the tabs it applies to.
 - **Map** (the Map tab):
-  - a pin per location in its live status colour, the vehicles where their GNSS last put them, and the 60 GHz links as lines
+  - a pin per location in its live status colour, the vehicles where their GNSS (or the Mobius data) last put them, and the 60 GHz links as lines
   - hover for the reason, click for the location's page
   - positions: the **Lat / Lon** columns of the Groups sheet in `devices.xlsx`; `import-rajant` fills them from the radios' GPS (a typed position wins), then `build-inventory`
   - background: **Admin → Map** (satellite, street map or none). The viewer's browser loads the images straight from the provider; offline it is a plain grid, with the pins still placed by GPS
@@ -123,24 +125,33 @@ python run.py build-inventory ..\sites\devices.xlsx --site mendon --out ..\sites
   - the site firewall must let the server ping the device networks; when ICMP is filtered, the port checks still count
 - **Report a problem** (header): a signed-in admin downloads one zip with the version, status, the last 7 days of events, recent log lines, the inventory and any errors the page caught. Secrets are never in it. A red dot on the button means the page caught an error.
 
-## Connecting the devices (live mode readers, 0.7.0)
+## Connecting the devices (live mode readers)
 
 In live mode each device is pinged and its ports checked, and its **reader** asks the device itself for its values. The logins go in `secrets.env` by name (`install.sh --secrets` asks for every name the inventory uses; the test install: `dev-secrets\secrets.env`). They never go in the inventory.
 
 | Devices | Reader | Needs | Login names (secrets.env) |
 |---|---|---|---|
-| Rajant BreadCrumbs | SNMP v3 authPriv (SHA1 / AES128) | the SNMP v3 user on the radios (the V&V change request), with this server as the source | `RAJANT_SNMP_USER`, `RAJANT_SNMP_AUTH`, `RAJANT_SNMP_PRIV` |
-| Tachyon 60 GHz | SNMP v2c, read-only | a read-only community | `TACHYON_SNMP_RO` |
+| Rajant BreadCrumbs | SNMP v3 authPriv (SHA1 / AES128): uptime, traffic, temperature, channel busy and noise per radio, dropped packets | the SNMP v3 user on the radios (the V&V change request), with this server as the source | `RAJANT_SNMP_USER`, `RAJANT_SNMP_AUTH`, `RAJANT_SNMP_PRIV` |
+| Tachyon 60 GHz | SNMP v2c, read-only: the link's signal (both ends), SNR, MCS, PHY rate, radio temperature, CPU / memory | a read-only community | `TACHYON_SNMP_RO` |
 | Trailer switches | SNMP v2c, read-only (ports up, PoE watts) | the RO community they already have | `SWITCH_SNMP_RO` |
 | Cerbo GX | Modbus TCP (battery, solar, load; charger state and yield with the **Modbus unit** column) | Settings → Services → Modbus TCP → on | none |
+| Cell modems (Type `cell_modem`; the **Model** column picks the reader) | Sierra **RV55 / RV50 / MP70**: SNMP. **MikroTik** (LtAP, Chateau …): SNMP. **OpenWrt**: SNMP + the small `deploy/openwrt/ng-cell.sh` script. Signal (RSRP, SINR, RSRQ, RSSI), network, operator, band | a read-only SNMP community on the modem | `CELL_SNMP_RO` |
+| Sierra **XR80 / XR90** (no SNMP) | ALMS (AirVantage) cloud API, by the **Serial** column - only signal and network values are kept | an ALMS API client allowed to view systems (client credentials) | `ALMS_CLIENT_ID`, `ALMS_CLIENT_SECRET` |
+| Starlink | the dish's own status API (latency, drop, obstruction, throughput, alerts) through the trailer router | a NAT on the router to the dish's **192.168.100.1:9201**; the Devices row's **API address** = router address:NAT port | none |
+| WireGuard tunnels | the Netmaker gateway's API: online, last check-in (Pro servers also latency and uptime) | **Netmaker URL** on the Sites sheet, **Netmaker host** on each group with a tunnel; a dedicated Netmaker user's access token, with an expiry | `NETMAKER_TOKEN` |
 | VCU, GNSS (vehicle positions), VAI | the Mobius InfluxDB | InfluxDB reachable on 8086 (the Mobius team's sign-off), then the mapping from `probe-influx` | none (or a user / password by name) |
+| **Everything else in Mobius** | the Mobius InfluxDB, read every minute, shown on each vehicle / location / desk page as **Mobius data**; the Mobius Server's page lists what Mobius knows that is not in the inventory | the same InfluxDB access - no mapping needed | none |
 
-- **Firewall:** from the server, UDP 161 (SNMP), TCP 502 (Modbus) and TCP 8086 (InfluxDB), plus ping.
-- **Rajant and Tachyon specific values** (peers, temperature, RSSI, SNR, MCS) come once their vendor MIB files are in `Documents\Network Guru\mibs\`; the standard values (uptime, traffic) work now.
+- **Firewall:** from the server, UDP 161 (SNMP), TCP 502 (Modbus), TCP 8086 (InfluxDB), the Starlink NAT port, plus ping; out to the internet on 443 for the Netmaker gateway and ALMS (`na.airvantage.net`).
+- **The Netmaker token** can change the VPN on Community Edition (it has no read-only role): it lives only in secrets.env, the dashboard only reads with it, and an expiry date on the token is a good idea.
+- **Rajant's SNMP has no peer count or input voltage**: those charts are filled by the simulator only. The Tachyon MIB does not give units for rx power and tx rate; `probe-snmp` shows the raw numbers to compare with the Tachyon's own page.
 - **A device that answers ping but not its reader** is a Warning, "Device data (snmp): Not read", with the reason on its page.
 - **Readers without their logins** are "not set up" (one note on the dashboard, no warning on every card); the device is still pinged. Adding the logins needs no restart.
 - **Bring-up commands** (on the test install prefix them with `docker compose exec app`):
   - `python -m networkguru probe-snmp <ip> --type rajant|tachyon|switch` - every value the reader gets (`--walk <OID>` dumps a subtree)
+  - `python -m networkguru probe-snmp <ip> --type cell_modem --model RV55` (or `MikroTik`, `OpenWrt`)
+  - `python -m networkguru probe-netmaker` - the Netmaker host names (for the Groups sheet) and each tunnel's status
+  - `python -m networkguru probe-starlink <router address>:<NAT port>` - what the dish gives
   - `python -m networkguru probe-modbus <ip> [--mppt-unit N]`
   - `python -m networkguru probe-influx --url http://<mobius server>:8086 --out influx-layout.txt` - the database layout, names only (send this file for the Mobius mapping)
 

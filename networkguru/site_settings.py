@@ -29,7 +29,10 @@ DEFAULTS: dict[str, Any] = {
     "smtp_security": "starttls",     # starttls | ssl | none (none = relay, no sign-in)
     "dashboard_url": "",
     "map_background": "satellite",   # satellite | street | none (maptiles.py)
+    "hide_quiet_min": 60,            # Live leaves out a group with no answer for this long (0 = never)
+    "hide_quiet_tabs": ["vehicles", "control", "infrastructure"],
 }
+HIDE_TABS = ("vehicles", "control", "infrastructure")
 _EMAIL = re.compile(r"^[^@\s,;<>\"]+@[^@\s,;<>\"]+\.[^@\s,;<>\"]+$")
 _HOST = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
 _GUID = re.compile(r"^[0-9a-fA-F-]{36}$|^[A-Za-z0-9.-]{3,253}$")
@@ -95,6 +98,19 @@ def validate(patch: dict[str, Any]) -> dict[str, Any]:
             if value not in ("satellite", "street", "none"):
                 raise ValueError("map_background: satellite, street or none")
             out[key] = value
+        elif key == "hide_quiet_min":
+            try:
+                minutes = int(value)
+            except (TypeError, ValueError):
+                raise ValueError("hide_quiet_min: a number of minutes (0 = never hide)") from None
+            if not 0 <= minutes <= 7 * 24 * 60:
+                raise ValueError("hide_quiet_min: 0 (never) to 10080 minutes (a week)")
+            out[key] = minutes
+        elif key == "hide_quiet_tabs":
+            items = value if isinstance(value, list) else []
+            if not isinstance(value, list) or any(t not in HIDE_TABS for t in items):
+                raise ValueError("hide_quiet_tabs: a list of vehicles, control, infrastructure")
+            out[key] = [t for t in HIDE_TABS if t in items]
         elif key == "dashboard_url":
             v = str(value or "").strip()
             if v and not re.match(r"^https?://[^\s<>\"]+$", v):

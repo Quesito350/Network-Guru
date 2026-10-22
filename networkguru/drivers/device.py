@@ -64,6 +64,8 @@ class DevicePoller(ReachPoller):
             if isinstance(read, ReadError):
                 self.cached = None
                 info["read_error"] = str(read)
+                if not (self.ping_host or self.ports):    # read from a cloud (ALMS): the reader is all there is
+                    return CompResult(base.comp_id, base.ts, False, [], info, str(read))
                 metrics.append(Metric("read_ok", 0.0, {"via": self.reader.via}))
                 return CompResult(base.comp_id, base.ts, base.reachable, metrics, info, base.error)
             self.cached = read

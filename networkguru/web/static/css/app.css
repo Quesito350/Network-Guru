@@ -233,6 +233,26 @@ footer button.linkish { border: 0; background: none; color: var(--link); cursor:
 }
 .tile .lbl { font-size: 12px; color: var(--ink-2); display: flex; align-items: center; gap: 6px; }
 .tile .val { font-size: 24px; font-weight: bold; margin-top: 2px; }
+button.tile { font: inherit; color: inherit; text-align: left; cursor: pointer; }
+button.tile:hover { border-color: var(--ink-2); }
+button.tile.on { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.filter-bar, .quiet-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 13px;
+  margin: -4px 0 12px; color: var(--ink-2); }
+.filter-bar span { font-weight: bold; color: var(--ink); }
+.empty-filter { color: var(--ink-2); margin: 0 0 14px; }
+.card.quiet { opacity: 0.62; }
+.card-mobius { padding: 0 14px 6px 18px; margin-top: -4px; font-size: 12px; color: var(--muted); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.mob-search { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--card); color: var(--ink); width: min(360px, 100%); margin-bottom: 8px; }
+.mob-body { max-height: 520px; overflow: auto; padding: 4px 14px; }
+.mob-table .mob-meas th { text-align: left; font-size: 12px; color: var(--ink-2); padding-top: 10px; }
+.mob-table tr.stale td { color: var(--muted); }
+.mob-table tr.stale b { font-weight: normal; }
+.mob-h3 { font-size: 14px; margin: 14px 0 6px; }
+.mob-site { margin-top: 12px; }
+.mob-site summary { cursor: pointer; font-size: 13px; color: var(--ink-2); margin-bottom: 6px; }
+.map-quiet { margin-top: 10px; }
 .issues {
   background: var(--card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 16px;
   box-shadow: var(--shadow);
@@ -497,6 +517,7 @@ select.btn { padding: 4px 8px; }
 .field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--ink-2); min-width: 160px; }
 .field textarea { min-width: min(520px, 80vw); }
 label.check { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
+.checks { display: flex; gap: 14px; flex-wrap: wrap; padding-top: 4px; color: var(--ink); }
 .upload { border-top: 1px solid var(--hair); margin-top: 14px; padding-top: 4px; }
 .upload input[type="file"] { font-size: 12px; }
 .upload .progress { width: 280px; margin: 6px 0; }
