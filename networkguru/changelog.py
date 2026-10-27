@@ -7,6 +7,11 @@ networkguru.__version__ - release.py refuses to package otherwise).
 """
 
 CHANGES = [
+    ("0.9.1", "2026-10-27", [
+        "Admin → Found on the network has an 'Also scan these networks' box: type the networks the scan should "
+        "cover too (for example the Mobius server's network, 10.x.y.0/24), Save, then Scan now. No spreadsheet "
+        "change or restart needed. Private ranges only.",
+    ]),
     ("0.9.0", "2026-10-27", [
         "The dashboard can find the site's devices itself: Admin → Found on the network → Scan now, and every night "
         "at 02:00. It looks around the addresses the inventory has (and the Sites sheet's Subnets) for Mobius "

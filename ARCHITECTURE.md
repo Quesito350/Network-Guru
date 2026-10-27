@@ -331,7 +331,7 @@ app               result (matched by request_id, each consumed once) -> system e
 | `GET /api/admin/status` | updates, report state, settings, which secrets are set (names only) |
 | `POST /api/admin/update/{check,approve,remind,skip,dismiss}` | admin update actions |
 | `POST /api/admin/update/upload?name=` | offline update: raw zip body, `X-Update-Sha256` header |
-| `PUT /api/admin/settings` | report and check times, channels, recipients, Graph / SMTP host, dashboard URL, map background, `hide_quiet_min` / `hide_quiet_tabs`, `discovery_time` |
+| `PUT /api/admin/settings` | report and check times, channels, recipients, Graph / SMTP host, dashboard URL, map background, `hide_quiet_min` / `hide_quiet_tabs`, `discovery_time`, `discovery_ranges` |
 | `POST /api/admin/report/test` | send a test report now |
 
 Every `/api/admin/*` change needs the admin cookie and `X-Requested-With: networkguru`.
@@ -482,7 +482,7 @@ Ranges are capped at 32 days.
 
 ## The discovery scan (0.9.0)
 
-- **Ranges** (`discovery.ranges`): the /24 of every private inventory address + `discovery.ranges` (Sites sheet Subnets, written by `build_inventory`); private only, `MAX_ADDRESSES` 65,536.
+- **Ranges** (`Discovery.nets()` → `discovery.ranges`): the /24 of every private inventory address + `discovery.ranges` (Sites sheet Subnets, written by `build_inventory`) + the admin setting `discovery_ranges` (Admin → Found on the network → "Also scan these networks", 0.9.1; validated in `site_settings._scan_ranges`); private only, `MAX_ADDRESSES` 65,536.
 - **Scanner:** at most `RATE` (300) addresses started a second, 200 in flight, 1 s timeouts, 30 min cap. Who answers: ping (when ICMP is allowed) + TCP 18080 / 8086 on every address (Windows drops ping). Then, only for those: TCP 2101 / 502 / 22 / 80 / 443; InfluxDB `/ping` header; NTRIP sourcetable; Modbus unit 100 register 800 (Victron "Serial (System)" = the GX's MAC); NetBIOS NBSTAT (UDP 137: name + MAC); SNMP: `snmp.engine_probe` (a v3 discovery request, no login) first, then the inventory's own logins (`site_logins`: v3 users first, then the communities) only to agents that answered; sysObjectID enterprise → type; vendor serial (Rajant 34861.1.1, Tachyon 57344.1.3.2.0, MikroTik mtxrSerialNumber 14988.1.1.7.3.0); a MikroTik whose LTE table answers is also a cell modem. Reverse DNS for recognised hosts without a name.
 - **Matching** (`match`): identity (serial > MAC > name, incl. identities learned from earlier scans) → known or **moved**; else the address: same type → known (its missing identity is learned), an SNMP device of another type → **changed**; else **new**. Unrecognised hosts are only counted ("other hosts").
 - **Server** (`found.Discovery`, live mode): Scan now + a nightly `DailyJob` (`discovery_time`, default 02:00). Moved → `comp.host` and the poller's `retarget()`; `addresses.json` keeps it (dropped when the inventory catches up). Pollers report `info.address`, so the move is an "Address changed" event. **Add** writes `added.json` and hot-adds: `load_site_inventory` (file + added + overlay), `Runtime.swap_inventory` → `Pipeline.swap_inventory` (new nodes), `live_pollers(only=…)`, `Scheduler.add()`. At start an added device the sheet now has (serial / MAC / address) is left out with a note. Results are admin-only; scans are system events.
@@ -539,6 +539,7 @@ Ranges are capped at 32 days.
 
 ## Version history
 
+- **0.9.1** (2026-10-27): Admin → Found on the network → "Also scan these networks" (`discovery_ranges` setting: private IPv4 only, at most 32 networks and 65,536 addresses; used by Scan now and the nightly scan).
 - **0.9.0** (2026-10-27): the discovery scan (`discovery.py`, `found.py`): Mobius servers / InfluxDB / NTRIP casters by port, Cerbo GX by Modbus, Windows PCs by NetBIOS, SNMP devices with the site's own logins only after a no-login probe; moved devices followed (`retarget`, `addresses.json`), new ones on Admin → Found on the network with Add (hot-add, `added.json`), Ignore and a CSV for `import-devices`; nightly at `discovery_time`; `scan` command; Sites sheet Subnets → `discovery.ranges`.
 - **0.8.0** (2026-10-21): Rajant / Tachyon vendor values; cell modem readers (Sierra ALEOS SNMP, ALMS for XR80 / XR90, MikroTik LTE, OpenWrt + `ng-cell.sh`); Starlink gRPC-Web status; WireGuard tunnels from Netmaker (+ gateway group, sheet columns Netmaker URL / host / API address); the Mobius explorer and the Mobius data sections; status tiles filter the cards; Live hides what has gone quiet (Admin → Live view); `probe-netmaker`, `probe-starlink`, `probe-snmp --type cell_modem`; the admin page lists the inventory's device logins (set or not).
 - **0.7.0** (2026-10-21): device readers - SNMP v2c / v3 (Rajant, Tachyon, switches; standard MIBs), Modbus TCP (Cerbo GX), the Mobius InfluxDB reader driven by a mapping + `probe-influx`; one `DevicePoller` per device with `read_ok`; probe commands; `install.sh --secrets` asks for the inventory's login names; new dependency `cryptography` (AES for SNMP v3).

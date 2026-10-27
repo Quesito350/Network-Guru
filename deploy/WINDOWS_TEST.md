@@ -114,7 +114,7 @@ docker compose cp app:/data/influx-layout.txt .
 - `probe-starlink` needs the router's dst-nat to the dish's **192.168.100.1:9201**; that `router IP:port` goes into the Starlink row's **API address**.
 - Send the `probe-snmp` output of one Rajant and one Tachyon (it has no logins in it): the Tachyon file does not say the units of rx power and tx rate, so they are checked against the Tachyon's own page.
 - On the Cerbo GX, switch Modbus TCP on (Settings → Services → Modbus TCP) and note the solar charger's unit ID for the **Modbus unit** column of the Devices sheet.
-- **Find devices (0.9.0):** tell IT first, then `docker compose exec app python -m networkguru scan` lists what answers around the inventory's addresses (Mobius servers, InfluxDB, NTRIP casters, Cerbos, SNMP devices) and whether each is known, moved or new - nothing is kept. Then **Admin → Found on the network → Scan now** keeps the list: Add or Ignore each new one. Docker Desktop reaches the site network through the PC, so the PC must be on it (or on its VPN).
+- **Find devices (0.9.0):** tell IT first, then `docker compose exec app python -m networkguru scan` lists what answers around the inventory's addresses (Mobius servers, InfluxDB, NTRIP casters, Cerbos, SNMP devices) and whether each is known, moved or new - nothing is kept. Then **Admin → Found on the network → Scan now** keeps the list: Add or Ignore each new one. A network with nothing from the inventory in it (e.g. the Mobius server's) goes in **Also scan these networks** there (Save, then Scan now) - no rebuild needed. Docker Desktop reaches the site network through the PC, so the PC must be on it (or on its VPN).
 
 ### A6. Admin sign-in
 

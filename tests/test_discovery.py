@@ -284,6 +284,15 @@ def test_admin_api(tmp_path):
         r = c.post("/api/admin/discovery/add", json={"key": "nope", "name": "x", "type": "host"}, headers=HDR)
         assert r.status_code == 400 and "not on the list" in r.json()["detail"]
         assert c.get("/api/admin/discovery/export.csv").text.startswith("name,site,type,ip")
+        # 0.9.1: "Also scan these networks" on the Admin page
+        r = c.put("/api/admin/settings", json={"discovery_ranges": "10.200.1.0/24, 10.200.4.9"}, headers=HDR)
+        assert r.status_code == 200 and r.json()["discovery_ranges"] == ["10.200.1.0/24", "10.200.4.9/32"]
+        assert c.get("/api/admin/discovery").json()["ranges"] == ["10.200.1.0/24", "10.200.4.9/32"]
+        r = c.put("/api/admin/settings", json={"discovery_ranges": "10.200.1.0/24 8.8.8.0/24"}, headers=HDR)
+        assert r.status_code == 400 and "8.8.8.0/24 is not a private network" in r.json()["detail"]
+        d = c.app.state.rt.discovery
+        d.allow_loopback = True                          # the inventory's own devices sit on 127.0.0.x here
+        assert [str(n) for n in d.nets()] == ["10.200.1.0/24", "10.200.4.9/32", "127.0.0.0/24"]
 
 
 def test_settings_and_sheet_subnets():
@@ -291,6 +300,14 @@ def test_settings_and_sheet_subnets():
     assert validate({"discovery_time": "01:30"}) == {"discovery_time": "01:30"}
     with pytest.raises(ValueError):
         validate({"discovery_time": "25:00"})
+    assert validate({"discovery_ranges": "10.200.1.0/24,10.200.1.0/24\n 192.168.100.1; 172.17.4.0/22"}) == {
+        "discovery_ranges": ["10.200.1.0/24", "192.168.100.1/32", "172.17.4.0/22"]}      # duplicates once, /32 for an address
+    assert validate({"discovery_ranges": ["10.200.2.0/24"]}) == {"discovery_ranges": ["10.200.2.0/24"]}
+    assert validate({"discovery_ranges": ""}) == {"discovery_ranges": []}
+    for bad, why in (("8.8.8.0/24", "not a private network"), ("fd00::/64", "IPv6"), ("the mobius net", "is not a network"),
+                     ("10.0.0.0/15", "more than one scan does"), ("127.0.0.0/24", "not a private network")):
+        with pytest.raises(ValueError, match=why):
+            validate({"discovery_ranges": bad})
     sheet = Sheet()
     sheet.sites.append({"Site": "lab", "Name": "Lab", "Time zone": "", "Lat": "", "Lon": "", "Mobius InfluxDB URL": "",
                         "Netmaker URL": "", "Subnets": "10.200.0.0/16; 10.200.250.0/24", "Infrastructure subnet": "", "Notes": ""})

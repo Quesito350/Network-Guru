@@ -129,7 +129,7 @@ python run.py build-inventory ..\sites\devices.xlsx --site mendon --out ..\sites
 
 In live mode the dashboard can look for the site's devices itself (**Admin → Found on the network**: **Scan now**, and every night at 02:00 site time).
 
-- **Where:** the /24 around every address in the inventory, plus the Sites sheet's **Subnets**. Private ranges only (10.x, 172.16-31.x, 192.168.x), at most 65,536 addresses per scan, about 300 a second.
+- **Where:** the /24 around every address in the inventory, the Sites sheet's **Subnets**, and the networks in **Also scan these networks** on the Admin page (e.g. the Mobius server's network - saved at once, no rebuild). Private ranges only (10.x, 172.16-31.x, 192.168.x), at most 65,536 addresses per scan, about 300 a second.
 - **How it tells what it found:**
   - **Mobius servers** by port 18080, **InfluxDB** by its `/ping` answer on 8086, **NTRIP casters** (GNSS bases) by their sourcetable on 2101, **Cerbo GX** by Modbus. No login needed. Windows PCs give their name and MAC (NetBIOS).
   - **Radios, routers, modems, switches** by SNMP: first a request with no login (any SNMP device answers it), then only those devices get the site's own logins - the ones the inventory names. Logins are never guessed.

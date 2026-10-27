@@ -139,6 +139,12 @@ class Discovery:
                         lambda date: self.state.get("date") == date, lambda date, late: self.scan("nightly"),
                         catchup_s=3 * 3600)
 
+    def nets(self) -> list:
+        """What a scan covers: the /24s around the inventory, the Sites sheet Subnets and the Admin page's
+        'Also scan these networks'."""
+        return ranges(self.rt.inv, extra=self.rt.settings_state.get("discovery_ranges") or [],
+                      allow_loopback=self.allow_loopback)
+
     def start(self, who: str) -> bool:
         if self.running:
             return False
@@ -150,7 +156,7 @@ class Discovery:
         last = {"ts": t0, "who": who, "ranges": [], "addresses": 0, "answered": 0, "duration_s": 0,
                 "counts": {}, "error": None}
         try:
-            nets = ranges(self.rt.inv, allow_loopback=self.allow_loopback)
+            nets = self.nets()
             last["ranges"] = [str(n) for n in nets]
             kw = {"ports": self.ports} if self.ports else {}
             self.scanner = Scanner(site_logins(self.rt.inv), can_ping=self.rt.can_ping, **kw)
@@ -298,6 +304,7 @@ class Discovery:
         return {"enabled": True, "running": self.running,
                 "progress": dict(self.scanner.progress) if self.running and self.scanner else None,
                 "last": st.get("last"), "time": self.rt.settings_state.get("discovery_time", "02:00"),
+                "ranges": list(self.rt.settings_state.get("discovery_ranges") or []),
                 "items": [x for x in items if x["outcome"] != "known"],
                 "known": sum(1 for x in items if x["outcome"] == "known"),
                 "moves": list(reversed(st.get("moves") or []))[:20], "others": st.get("others") or [],

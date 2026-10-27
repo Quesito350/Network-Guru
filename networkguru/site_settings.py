@@ -32,6 +32,7 @@ DEFAULTS: dict[str, Any] = {
     "hide_quiet_min": 60,            # Live leaves out a group with no answer for this long (0 = never)
     "hide_quiet_tabs": ["vehicles", "control", "infrastructure"],
     "discovery_time": "02:00",       # the nightly network scan, site time ("" = no nightly scan)
+    "discovery_ranges": [],          # networks the scan covers on top of the inventory's own (Admin page)
 }
 HIDE_TABS = ("vehicles", "control", "infrastructure")
 _EMAIL = re.compile(r"^[^@\s,;<>\"]+@[^@\s,;<>\"]+\.[^@\s,;<>\"]+$")
@@ -114,9 +115,39 @@ def validate(patch: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(value, list) or any(t not in HIDE_TABS for t in items):
                 raise ValueError("hide_quiet_tabs: a list of vehicles, control, infrastructure")
             out[key] = [t for t in HIDE_TABS if t in items]
+        elif key == "discovery_ranges":
+            out[key] = _scan_ranges(value)
         elif key == "dashboard_url":
             v = str(value or "").strip()
             if v and not re.match(r"^https?://[^\s<>\"]+$", v):
                 raise ValueError("dashboard_url: starts with http:// or https://")
             out[key] = v
+    return out
+
+
+def _scan_ranges(value) -> list[str]:
+    """'Also scan these networks': private IPv4 networks, normalised (10.200.1.7 -> 10.200.1.7/32)."""
+    import ipaddress
+
+    from .discovery import MAX_ADDRESSES, is_private
+    items = value if isinstance(value, list) else re.split(r"[,;\s]+", str(value or ""))
+    items = [str(i).strip() for i in items if str(i).strip()]
+    if len(items) > 32:
+        raise ValueError("Networks to scan: at most 32")
+    out: list[str] = []
+    total = 0
+    for i in items:
+        try:
+            n = ipaddress.ip_network(i, strict=False)
+        except ValueError:
+            raise ValueError(f"'{i}' is not a network - use e.g. 10.200.1.0/24") from None
+        if n.version != 4:
+            raise ValueError(f"{n}: IPv6 networks are not scanned")
+        if not is_private(n):
+            raise ValueError(f"{n} is not a private network - only 10.x, 172.16-31.x and 192.168.x are scanned")
+        if str(n) not in out:
+            out.append(str(n))
+            total += n.num_addresses
+    if total > MAX_ADDRESSES:
+        raise ValueError(f"{total} addresses is more than one scan does ({MAX_ADDRESSES}) - use smaller networks")
     return out

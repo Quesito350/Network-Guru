@@ -277,9 +277,13 @@ function discoveryPanel(nav, isAlive) {
     if (!isAlive()) return;
     draw(d);
     if (flash) {
-      const open = h("a", { href: flash.href, text: "Open it" });
-      open.addEventListener("click", (e) => { e.preventDefault(); nav(flash.href); });
-      box.prepend(h("p", { class: "flash", role: "status" }, flash.text, " ", open));
+      const p = h("p", { class: "flash", role: "status" }, flash.text);
+      if (flash.href) {
+        const open = h("a", { href: flash.href, text: "Open it" });
+        open.addEventListener("click", (e) => { e.preventDefault(); nav(flash.href); });
+        p.append(" ", open);
+      }
+      box.prepend(p);
     }
     clearTimeout(timer);
     if (d.running) timer = setTimeout(load, 2000);
@@ -301,15 +305,24 @@ function discoveryPanel(nav, isAlive) {
         try { await post("/api/admin/discovery/scan"); load(); } catch (e) { setText(msg, e.message); scan.disabled = false; }
       } });
     const when = h("input", { type: "text", size: 6, value: d.time || "", placeholder: "02:00", "aria-label": "Nightly scan time" });
+    const nets = h("input", { type: "text", class: "disc-nets", value: (d.ranges || []).join(", "),
+      placeholder: "e.g. 10.200.1.0/24, 10.200.4.0/24", "aria-label": "Also scan these networks" });
     const saveWhen = h("button", { class: "btn", type: "button", text: "Save", onclick: async () => {
-      try { await post("/api/admin/settings", { discovery_time: when.value.trim() }, "PUT"); setText(msg, "Saved."); }
-      catch (e) { setText(msg, e.message); }
+      saveWhen.disabled = true;
+      try {
+        await post("/api/admin/settings", { discovery_time: when.value.trim(), discovery_ranges: nets.value }, "PUT");
+        await load({ text: "Saved - the next scan uses them.", href: null });
+      } catch (e) { setText(msg, e.message); saveWhen.disabled = false; }
     } });
     const csv = h("a", { class: "btn", href: "/api/admin/discovery/export.csv", text: "Download new ones for devices.xlsx" });
     append(box, [h("p", { text: summary }),
       last && last.ranges?.length ? h("p", { class: "muted small", text: `Ranges: ${last.ranges.join(", ")}` }) : null,
       d.running && d.progress ? h("p", { class: "ink2", text: `Scanning - ${d.progress.phase}: ${d.progress.done} of ${d.progress.total}` }) : null,
-      h("div", { class: "actions-row" }, scan, csv,
+      h("div", { class: "actions-row" }, scan, csv),
+      h("div", { class: "actions-row" },
+        h("label", { class: "field disc-nets-field" }, h("span", { text: "Also scan these networks" }), nets,
+          h("small", { class: "muted", text: "Private ranges only. The networks around the inventory's devices and the "
+            + "Sites sheet's Subnets are always scanned." })),
         h("label", { class: "field" }, h("span", { text: "Nightly at (site time, empty = off)" }), when), saveWhen),
       msg]);
     const list = (title, rows, cols, render, open = true) => {
