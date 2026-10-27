@@ -145,6 +145,7 @@ def build_inventory(sheet: Sheet, site: str, name: str | None = None, timezone: 
     lon = lon if lon is not None else _num(meta.get("Lon"), DEFAULT_LON, "Lon", report)
     influx = (meta.get("Mobius InfluxDB URL") or "").strip()
     netmaker = (meta.get("Netmaker URL") or "").strip().rstrip("/")
+    subnets = [n.strip() for n in (meta.get("Subnets") or "").replace(";", ",").split(",") if n.strip()]
     if netmaker and not re.match(r"^https?://[^\s/]+", netmaker):
         report.append(f"! Sites sheet: Netmaker URL '{netmaker}' does not start with https:// - left out")
         netmaker = ""
@@ -251,6 +252,7 @@ def build_inventory(sheet: Sheet, site: str, name: str | None = None, timezone: 
         "defaults": {"backhaul": backhaul, "types": TYPE_DEFAULTS},
         **({"mobius": {"influx_url": influx}} if influx else {}),
         **({"netmaker": {"url": netmaker, "token_ref": "NETMAKER_TOKEN"}} if netmaker else {}),
+        **({"discovery": {"ranges": subnets}} if subnets else {}),
         "control_room": tabs["control_room"], "infrastructure": tabs["infrastructure"], "vehicles": tabs["vehicles"],
     }
     n_comp = sum(len(g["components"]) for t in tabs.values() for g in t)

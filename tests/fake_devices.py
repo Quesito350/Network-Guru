@@ -29,6 +29,8 @@ def _value(tag: int, v) -> bytes:
         return S.enc_uint(int(v), tag)
     if tag == S.OCTETS:
         return S.tlv(S.OCTETS, v if isinstance(v, bytes) else str(v).encode())
+    if tag == S.OID:
+        return S.enc_oid(str(v))
     return S.tlv(tag, b"")
 
 
@@ -48,9 +50,9 @@ class FakeSnmpAgent(asyncio.DatagramProtocol):
 
     engine = b"\x80\x00\x1f\x88\x80fake-engine"
 
-    async def start(self):
+    async def start(self, host: str = "127.0.0.1", port: int = 0):
         loop = asyncio.get_running_loop()
-        self.transport, _ = await loop.create_datagram_endpoint(lambda: self, local_addr=("127.0.0.1", 0))
+        self.transport, _ = await loop.create_datagram_endpoint(lambda: self, local_addr=(host, port))
         self.port = self.transport.get_extra_info("sockname")[1]
         return self
 
@@ -142,8 +144,8 @@ class FakeModbus:
         self.server = None
         self.port = 0
 
-    async def start(self):
-        self.server = await asyncio.start_server(self._client, "127.0.0.1", 0)
+    async def start(self, host: str = "127.0.0.1", port: int = 0):
+        self.server = await asyncio.start_server(self._client, host, port)
         self.port = self.server.sockets[0].getsockname()[1]
         return self
 
@@ -255,7 +257,7 @@ class FakeInflux:
 class FakeHttp:
     """routes: {(method, path): fn(handler, body) -> (status, headers, body bytes)}; every request is kept."""
 
-    def __init__(self, routes: dict):
+    def __init__(self, routes: dict, host: str = "127.0.0.1", port: int = 0):
         self.routes, self.requests = routes, []
         outer = self
 
@@ -283,13 +285,14 @@ class FakeHttp:
             def do_POST(self):
                 self._go("POST")
 
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.server = ThreadingHTTPServer((host, port), H)
         self.port = self.server.server_address[1]
-        self.url = f"http://127.0.0.1:{self.port}"
+        self.url = f"http://{host}:{self.port}"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
     def close(self):
         self.server.shutdown()
+        self.server.server_close()
 
 
 def json_reply(obj, status: int = 200):

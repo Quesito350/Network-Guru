@@ -87,6 +87,8 @@ browser ──► REST /api/... (history charts, availability, path, events) ─
 | `drivers/influx.py`, `mobius.py`, `mobius_map.py` | InfluxDB 1.x client + `probe-influx`; the Mobius reader and its mapping |
 | `drivers/readers.py`, `device.py`, `drivers/__init__.py` | the per-device readers; one poller per device (ping + ports + reader); `live_pollers` |
 | `maptiles.py`, `problem_report.py`, `logbuffer.py` | map backgrounds and their CSP origin; the problem-report zip; the last 2000 log lines in memory |
+| `discovery.py` | the discovery scan: ranges and limits, probes (ping, TCP, InfluxDB `/ping`, NTRIP, Modbus, NetBIOS, SNMP), matching |
+| `found.py` | the scan on the server: review list, following moved devices, Add (hot-add), the files in `/data/state` |
 
 ## Status rules (pipeline)
 
@@ -134,7 +136,8 @@ IT already runs DHCP (Ubiquiti) without reservations. Tremonton's Rajants are on
 - **`address: dhcp`** marks a device whose IP can change. `host` is then only the last-known address. A DHCP device must have a serial, MAC or hostname, or it is an error.
 - **History** is stored by component id, never by IP, so it carries on across address changes.
 - **Events:** drivers (and the simulator) report the address they reached in `info.address`. A change becomes an `info_changes` event: "Address 10.200.4.81 → 10.200.4.97". Firmware changes are recorded the same way.
-- **Lookups (0.7):** `resolve.AddressBook` will be fed by the UniFi client list (IT's DHCP), MikroTik DHCP leases / ARP, the Rajant mesh ARP table over SNMP (IP-MIB `ipNetToPhysicalTable`), passive MNDP (router identity = vehicle name) and DNS. Rule: confirm the device's identity (serial / identity / sysName) before trusting a looked-up address.
+- **The discovery scan (0.9.0, below)** re-finds devices by serial / MAC / name and follows them.
+- **Lookups (later):** `resolve.AddressBook` could also be fed by the UniFi client list (IT's DHCP), MikroTik DHCP leases / ARP, the Rajant mesh ARP table over SNMP (IP-MIB `ipNetToPhysicalTable`), passive MNDP (router identity = vehicle name) and DNS. Rule: confirm the device's identity (serial / identity / sysName) before trusting a looked-up address.
 - **Simulator:** DHCP devices move to a new lease every few days and always after an injected outage.
 
 ## Site data
@@ -306,6 +309,8 @@ app               result (matched by request_id, each consumed once) -> system e
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/meta` | version, site, mode, notes, backfill %, catalog, thresholds, enum rules, `started`, `hide_quiet` {min, tabs}, `mobius_explore` |
+| `GET /api/admin/discovery` | the scan's state and review list (admin) |
+| `POST /api/admin/discovery/scan`, `/add`, `/ignore`; `GET …/export.csv` | Scan now (409 while running or outside live mode), Add a found device, Ignore / show again, rows for `import-devices` (admin) |
 | `GET /api/mobius/summary` | per group the newest Mobius data time and map positions (the cards, the gone-quiet rule) |
 | `GET /api/mobius`, `/api/mobius/{group}` | everything the Mobius explorer has: matched groups, "not in the inventory", site-wide values; one group's newest values |
 | `GET /api/inventory` | tabs → groups → components, with no `*_ref` and no sim knobs |
@@ -326,7 +331,7 @@ app               result (matched by request_id, each consumed once) -> system e
 | `GET /api/admin/status` | updates, report state, settings, which secrets are set (names only) |
 | `POST /api/admin/update/{check,approve,remind,skip,dismiss}` | admin update actions |
 | `POST /api/admin/update/upload?name=` | offline update: raw zip body, `X-Update-Sha256` header |
-| `PUT /api/admin/settings` | report and check times, channels, recipients, Graph / SMTP host, dashboard URL, map background, `hide_quiet_min` / `hide_quiet_tabs` |
+| `PUT /api/admin/settings` | report and check times, channels, recipients, Graph / SMTP host, dashboard URL, map background, `hide_quiet_min` / `hide_quiet_tabs`, `discovery_time` |
 | `POST /api/admin/report/test` | send a test report now |
 
 Every `/api/admin/*` change needs the admin cookie and `X-Requested-With: networkguru`.
@@ -475,6 +480,14 @@ Ranges are capped at 32 days.
 - **Mobius explorer** (`mobius_explore.py`, a runtime task, not a poller): the layout every 30 min with a "who" tag per measurement (asset_tag, else the tag whose values match inventory names, else an asset-like tag); every 60 s `SELECT * ... WHERE time > now() - 10m GROUP BY * ORDER BY time DESC LIMIT 3` per measurement; newest value per field and series; unmatched "who" values listed; lat / lon fields → vehicle map positions. Secret-like field names dropped, text cut to 200, the problem report gets counts only.
 - **Live view** (`js/quiet.js`): a group is quiet when no component was seen (and no Mobius data came) for `hide_quiet_min` - counted from the dashboard's start when it never answered, and never for a group nothing checks. Quiet groups leave the Live overview, its tiles and issues and the map (a per-tab switch shows them faded); History, pages, alerts and the report are unchanged. Status tiles are buttons that filter the cards (`?show=` in the address).
 
+## The discovery scan (0.9.0)
+
+- **Ranges** (`discovery.ranges`): the /24 of every private inventory address + `discovery.ranges` (Sites sheet Subnets, written by `build_inventory`); private only, `MAX_ADDRESSES` 65,536.
+- **Scanner:** at most `RATE` (300) addresses started a second, 200 in flight, 1 s timeouts, 30 min cap. Who answers: ping (when ICMP is allowed) + TCP 18080 / 8086 on every address (Windows drops ping). Then, only for those: TCP 2101 / 502 / 22 / 80 / 443; InfluxDB `/ping` header; NTRIP sourcetable; Modbus unit 100 register 800 (Victron "Serial (System)" = the GX's MAC); NetBIOS NBSTAT (UDP 137: name + MAC); SNMP: `snmp.engine_probe` (a v3 discovery request, no login) first, then the inventory's own logins (`site_logins`: v3 users first, then the communities) only to agents that answered; sysObjectID enterprise → type; vendor serial (Rajant 34861.1.1, Tachyon 57344.1.3.2.0, MikroTik mtxrSerialNumber 14988.1.1.7.3.0); a MikroTik whose LTE table answers is also a cell modem. Reverse DNS for recognised hosts without a name.
+- **Matching** (`match`): identity (serial > MAC > name, incl. identities learned from earlier scans) → known or **moved**; else the address: same type → known (its missing identity is learned), an SNMP device of another type → **changed**; else **new**. Unrecognised hosts are only counted ("other hosts").
+- **Server** (`found.Discovery`, live mode): Scan now + a nightly `DailyJob` (`discovery_time`, default 02:00). Moved → `comp.host` and the poller's `retarget()`; `addresses.json` keeps it (dropped when the inventory catches up). Pollers report `info.address`, so the move is an "Address changed" event. **Add** writes `added.json` and hot-adds: `load_site_inventory` (file + added + overlay), `Runtime.swap_inventory` → `Pipeline.swap_inventory` (new nodes), `live_pollers(only=…)`, `Scheduler.add()`. At start an added device the sheet now has (serial / MAC / address) is left out with a note. Results are admin-only; scans are system events.
+- **CLI:** `python -m networkguru scan [--range CIDR] [--only]` - one scan, printed, nothing kept.
+
 ## Roadmap
 
 | Ver | What | Verify where |
@@ -484,7 +497,8 @@ Ranges are capped at 32 days.
 | 0.7.0 ✓ | the device readers: SNMP (standard MIBs), Modbus (Cerbo GX), `probe-influx` + the mapping-driven Mobius reader (details in *Device readers*) | test PC / Mendon LAN |
 | 0.8.0 ✓ | Rajant / Tachyon vendor values (MIB files), cell modems (Sierra RV55 / XR80, MikroTik, OpenWrt), Starlink, WireGuard from Netmaker, the Mobius explorer, status tiles as filters, hiding what has gone quiet (details in *Readers 2 and the Live view*) | Mendon LAN |
 | 0.8.x | the Mobius mapping from `probe-influx` at Mendon (history and rules for VCU / GNSS / VAI); unit checks of the Tachyon and Sierra values against the devices | Mendon LAN |
-| 0.9.0 | readers 3: MikroTik REST (GET only), Celona Orchestrator, airMAX SNMP, UniFi API, Westermo SNMP, windows_exporter; address lookups for DHCP (UniFi clients, MikroTik leases/ARP, Rajant ARP over SNMP, MNDP, DNS) | each device type |
+| 0.9.0 ✓ | the discovery scan: find Mobius servers and devices, follow moved ones, Add from a review list (details in *The discovery scan*) | Mendon LAN |
+| 0.10.0 | readers 3: MikroTik REST (GET only), Celona Orchestrator, airMAX SNMP, UniFi API, Westermo SNMP, windows_exporter; address lookups for DHCP (UniFi clients, MikroTik leases/ARP, Rajant ARP over SNMP, MNDP, DNS) | each device type |
 | 1.0.0 | thresholds reviewed with ops, optional view password, HTTPS (admin sign-in is plain HTTP on the LAN in 0.5.0), second-site offline install | site |
 | later | Rajant BCAPI (live "via tower X"), Helm direct (`WAN:21443`), 30-day backfill from Mobius Influx, vehicle tracks on the map (from history), control-room kiosk mode | |
 
@@ -525,6 +539,7 @@ Ranges are capped at 32 days.
 
 ## Version history
 
+- **0.9.0** (2026-10-27): the discovery scan (`discovery.py`, `found.py`): Mobius servers / InfluxDB / NTRIP casters by port, Cerbo GX by Modbus, Windows PCs by NetBIOS, SNMP devices with the site's own logins only after a no-login probe; moved devices followed (`retarget`, `addresses.json`), new ones on Admin → Found on the network with Add (hot-add, `added.json`), Ignore and a CSV for `import-devices`; nightly at `discovery_time`; `scan` command; Sites sheet Subnets → `discovery.ranges`.
 - **0.8.0** (2026-10-21): Rajant / Tachyon vendor values; cell modem readers (Sierra ALEOS SNMP, ALMS for XR80 / XR90, MikroTik LTE, OpenWrt + `ng-cell.sh`); Starlink gRPC-Web status; WireGuard tunnels from Netmaker (+ gateway group, sheet columns Netmaker URL / host / API address); the Mobius explorer and the Mobius data sections; status tiles filter the cards; Live hides what has gone quiet (Admin → Live view); `probe-netmaker`, `probe-starlink`, `probe-snmp --type cell_modem`; the admin page lists the inventory's device logins (set or not).
 - **0.7.0** (2026-10-21): device readers - SNMP v2c / v3 (Rajant, Tachyon, switches; standard MIBs), Modbus TCP (Cerbo GX), the Mobius InfluxDB reader driven by a mapping + `probe-influx`; one `DevicePoller` per device with `read_ok`; probe commands; `install.sh --secrets` asks for the inventory's login names; new dependency `cryptography` (AES for SNMP v3).
 - **0.6.0** (2026-10-21): live mode pings every device and checks its service ports (`drivers/reach.py`); the Map page (`slippy.js`, `map.js`, Lat / Lon on the Groups sheet, `map_background` + CSP); Report a problem (admin zip, page error capture, log buffer). Device readers moved to 0.7.0.

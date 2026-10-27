@@ -35,9 +35,15 @@ DAY = 86400.0
 class Runtime:
     def __init__(self, settings):
         self.settings = settings
-        self.inv = load_inventory(settings.inventory)
-        self.rules = RuleSet(load_rules(settings.rules))
         self.mode = settings.mode
+        inv_notes: list[str] = []
+        if self.mode == "live":            # + devices added from the discovery scan, + followed addresses
+            from .found import load_site_inventory
+            self.inv, self.base_hosts, inv_notes = load_site_inventory(settings.inventory, settings.data_dir)
+        else:
+            self.inv = load_inventory(settings.inventory)
+            self.base_hosts = {cid: c.host for cid, c in self.inv.comps.items()}
+        self.rules = RuleSet(load_rules(settings.rules))
         self.tsdb = None
         self.events: EventStore | None = None
         self.pipeline: Pipeline | None = None
@@ -46,7 +52,7 @@ class Runtime:
         self.scheduler: Scheduler | None = None
         self.progress = Progress()
         logbuffer.install()                  # the last log lines, for the problem report
-        self.notes: list[str] = []
+        self.notes: list[str] = list(inv_notes)
         self.tasks: list[asyncio.Task] = []
         self.started = time.time()
         self.settings_state = open_settings(settings.data_dir, settings.public_url)
@@ -55,6 +61,8 @@ class Runtime:
         self.updates: UpdateManager | None = None
         self.reports: ReportService | None = None
         self.mobius = None                    # live mode: the Mobius explorer (drivers/mobius_explore.py)
+        self.discovery = None                 # live mode: the discovery scan (found.py)
+        self.can_ping = False
 
     @property
     def docker(self) -> bool:
@@ -99,6 +107,7 @@ class Runtime:
         else:
             self.events.start_run(time.time(), __version__, "live")
             can_ping, why = icmp_available()
+            self.can_ping = can_ping
             pollers, self.pipeline.unchecked, notes = live_pollers(self.inv, can_ping)
             self.pipeline.sweep()            # show "Not checked yet" at once, not after the first sweep
             self.notes.extend(notes)
@@ -110,6 +119,27 @@ class Runtime:
                 from .drivers.mobius_explore import MobiusExplorer
                 self.mobius = MobiusExplorer(self.inv)
                 self.tasks.append(asyncio.create_task(self.mobius.run()))
+            from .found import Discovery
+            self.discovery = Discovery(self)
+            self.tasks.append(asyncio.create_task(self.discovery.daily_job().loop()))
+
+    def swap_inventory(self, inv, base_hosts: dict) -> list[str]:
+        """Go on with a bigger inventory (a device added from the discovery scan) without a restart.
+        Returns the new component ids."""
+        old = self.inv
+        self.inv, self.base_hosts = inv, base_hosts
+        self.pipeline.swap_inventory(inv)
+        if self.history is not None:
+            self.history.inv = inv
+        if self.mobius is not None:
+            self.mobius.inv, self.mobius.names = inv, self.mobius._names(inv)
+        new = {cid for cid in inv.comps if cid not in old.comps}
+        if new and self.scheduler is not None:
+            pollers, unchecked, _notes = live_pollers(inv, self.can_ping, only=new)
+            self.pipeline.unchecked.update(unchecked)
+            self.scheduler.add(pollers)
+        self.pipeline.sweep()
+        return sorted(new)
 
     async def _open_tsdb(self):
         url = self.settings.vm_url

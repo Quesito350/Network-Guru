@@ -125,6 +125,21 @@ python run.py build-inventory ..\sites\devices.xlsx --site mendon --out ..\sites
   - the site firewall must let the server ping the device networks; when ICMP is filtered, the port checks still count
 - **Report a problem** (header): a signed-in admin downloads one zip with the version, status, the last 7 days of events, recent log lines, the inventory and any errors the page caught. Secrets are never in it. A red dot on the button means the page caught an error.
 
+## Discovery scan: find devices on the network (0.9.0)
+
+In live mode the dashboard can look for the site's devices itself (**Admin → Found on the network**: **Scan now**, and every night at 02:00 site time).
+
+- **Where:** the /24 around every address in the inventory, plus the Sites sheet's **Subnets**. Private ranges only (10.x, 172.16-31.x, 192.168.x), at most 65,536 addresses per scan, about 300 a second.
+- **How it tells what it found:**
+  - **Mobius servers** by port 18080, **InfluxDB** by its `/ping` answer on 8086, **NTRIP casters** (GNSS bases) by their sourcetable on 2101, **Cerbo GX** by Modbus. No login needed. Windows PCs give their name and MAC (NetBIOS).
+  - **Radios, routers, modems, switches** by SNMP: first a request with no login (any SNMP device answers it), then only those devices get the site's own logins - the ones the inventory names. Logins are never guessed.
+- **What happens:**
+  - A device that **moved** (proven by its serial, MAC or name) is followed to its new address by itself - "Address changed" in Events.
+  - A **new** device waits on the Admin page: **Add…** puts it on the dashboard at once (a group and a name; no restart), **Ignore** hides it. The site's devices.xlsx is not changed: **Download new ones for devices.xlsx** gives rows for `import-devices`.
+  - An address that now **answers as something else** is listed, never followed.
+- **Tell IT before the first scan** - network security tools may notice it. Only reads; nothing on any device is changed.
+- **Try it from a terminal first:** `python -m networkguru scan` (on the test install: `docker compose exec app python -m networkguru scan`) prints what answers, without keeping anything.
+
 ## Connecting the devices (live mode readers)
 
 In live mode each device is pinged and its ports checked, and its **reader** asks the device itself for its values. The logins go in `secrets.env` by name (`install.sh --secrets` asks for every name the inventory uses; the test install: `dev-secrets\secrets.env`). They never go in the inventory.

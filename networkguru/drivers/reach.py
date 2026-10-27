@@ -222,9 +222,16 @@ class ReachPoller:
         self.comp = comp
         self.comp_ids = [comp.id]
         self.interval = interval or type_spec(comp.type).interval
+        self.can_ping = can_ping
         self.ping_host = _ipv4(comp.host) if can_ping and type_spec(comp.type).ping else None
         self.ports = ports_of(comp)
         self.timeout = PINGS * PING_GAP_S + PING_WAIT_S + TCP_TIMEOUT_S + 3.0
+
+    def retarget(self, host: str) -> None:
+        """The discovery scan found the device at another address: check it there from now on."""
+        self.comp.host = host
+        self.ping_host = _ipv4(host) if self.can_ping and type_spec(self.comp.type).ping else None
+        self.ports = ports_of(self.comp)
 
     async def poll(self, now: float) -> list[CompResult]:
         jobs = [tcp_check(h, p) for h, p in self.ports]
@@ -264,7 +271,9 @@ class ReachPoller:
                 problems.insert(0, "no reply to ping")
         if not answered:
             return CompResult(self.comp.id, now, False, error="; ".join(problems) or "no answer")
-        return CompResult(self.comp.id, now, True, metrics=metrics)
+        # the address it answered on - a change (DHCP, the discovery scan) becomes an "Address changed" event
+        info = {"address": self.comp.host.split(":")[0]} if self.comp.host else {}
+        return CompResult(self.comp.id, now, True, metrics=metrics, info=info)
 
 
 def reach_pollers(inv, can_ping: bool) -> tuple[list[ReachPoller], dict[str, str]]:

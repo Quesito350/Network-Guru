@@ -82,6 +82,22 @@ class Pipeline:
         self.pending_points: list = []
         self.unchecked: dict[str, str] = {}      # live mode: comp id -> why no driver checks it yet
 
+    def swap_inventory(self, inv: Inventory) -> None:
+        """A bigger inventory while running (a device added from the discovery scan): new nodes start Unknown."""
+        self.inv = inv
+        for cid in inv.comps:
+            if cid not in self.state:
+                self.state[cid] = NodeState(cid, "component")
+                self.memory[cid] = RuleMemory()
+        for gid in inv.groups:
+            if gid not in self.state:
+                self.state[gid] = NodeState(gid, "group")
+        self.dependents = {}
+        for c in inv.comps.values():
+            if c.depends_on:
+                self.dependents.setdefault(c.depends_on, set()).add(inv.comp_group[c.id])
+        self.version += 1
+
     # ------------------------------------------------------------------
     def ingest(self, results: list[CompResult], now: float | None = None, fast: bool = False) -> None:
         now = self.clock() if now is None else now

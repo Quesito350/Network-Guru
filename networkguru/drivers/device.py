@@ -76,4 +76,6 @@ class DevicePoller(ReachPoller):
         info.pop("read_error", None)
         metrics += r_metrics + [Metric("read_ok", 1.0, {"via": self.reader.via})]
         # the device answered its reader even if ping and ports did not (ICMP filtered)
+        if self.comp.host:
+            info.setdefault("address", self.comp.host.split(":")[0])
         return CompResult(base.comp_id, base.ts, True, metrics, info, None)

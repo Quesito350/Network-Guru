@@ -23,8 +23,9 @@ NO_PING = "Not checked - ping is not permitted on this host, and it has no port 
 NO_NETMAKER = "Not checked - no Netmaker gateway for this site (Sites sheet: Netmaker URL)"
 
 
-def live_pollers(inv, can_ping: bool) -> tuple[list, dict[str, str], list[str]]:
-    """(pollers, {comp id: why it is not checked}, dashboard notes) for live mode."""
+def live_pollers(inv, can_ping: bool, only: set[str] | None = None) -> tuple[list, dict[str, str], list[str]]:
+    """(pollers, {comp id: why it is not checked}, dashboard notes) for live mode. `only`: just these
+    components (devices added while running)."""
     from .cellular import UNKNOWN_MODEL
     from .device import DevicePoller
     from .mobius import MobiusPoller
@@ -41,6 +42,8 @@ def live_pollers(inv, can_ping: bool) -> tuple[list, dict[str, str], list[str]]:
     not_set_up: dict[str, set[str]] = {}
     unknown_cells = 0
     for c in inv.comps.values():
+        if only is not None and c.id not in only:
+            continue
         if type_spec(c.type).source == "mobius" or c.source == "mobius":
             if url and c.type in mapped:
                 mobius.append(c)

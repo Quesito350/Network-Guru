@@ -7,6 +7,18 @@ networkguru.__version__ - release.py refuses to package otherwise).
 """
 
 CHANGES = [
+    ("0.9.0", "2026-10-27", [
+        "The dashboard can find the site's devices itself: Admin → Found on the network → Scan now, and every night "
+        "at 02:00. It looks around the addresses the inventory has (and the Sites sheet's Subnets) for Mobius "
+        "servers, InfluxDB and NTRIP casters (by their ports), Cerbo GX units, and radios, routers, modems and "
+        "switches (by SNMP, with only the site's own logins).",
+        "A device that moved - recognised by its serial number, MAC or name - is followed to its new address by "
+        "itself, and Events shows 'Address changed'. Ready for the move to DHCP.",
+        "A new device waits on the Admin page: Add puts it on the dashboard at once (pick a group, give it a name), "
+        "Ignore hides it, and 'Download new ones for devices.xlsx' gives rows to bring it into the spreadsheet.",
+        "New command: scan - prints what answers on the site's networks, without keeping anything. Tell IT before "
+        "the first scan: network security tools may notice it.",
+    ]),
     ("0.8.0", "2026-10-21", [
         "The status tiles now filter: click Critical, Warning, OK, Offline or Unknown to see only those cards, "
         "click again (or Show all) for everything. The choice stays in the address, so a refresh keeps it.",

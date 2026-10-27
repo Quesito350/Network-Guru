@@ -56,6 +56,21 @@ class Scheduler:
         self.running = False
         self.last_tick: float | None = None
         self.loop_lag_ms = 0.0
+        self._due: dict[int, float] = {}
+        self._last: dict[int, float] = {}
+        self._poller_of: dict[str, object] = {}
+
+    def poller_of(self, comp_id: str):
+        return self._poller_of.get(comp_id) or next((p for p in self.pollers if comp_id in p.comp_ids), None)
+
+    def add(self, pollers: list) -> None:
+        """More pollers while running (a device added from the discovery scan): polled at once."""
+        now = self.clock()
+        for p in pollers:
+            self.pollers.append(p)
+            self._due[id(p)], self._last[id(p)] = now, 0.0
+            for cid in p.comp_ids:
+                self._poller_of[cid] = p
 
     async def _poll(self, p, now: float) -> list[CompResult]:
         try:
@@ -70,10 +85,12 @@ class Scheduler:
         self.running = True
         start = self.clock()
         # spread first polls over each interval so devices aren't all hit at once
-        due = {id(p): start + (i * 0.37) % max(p.interval, 1.0) for i, p in enumerate(self.pollers)}
-        last = {id(p): 0.0 for p in self.pollers}
-        poller_of = {cid: p for p in self.pollers for cid in p.comp_ids}
-        comps = self.pipeline.inv.comps
+        due = self._due
+        due.update({id(p): start + (i * 0.37) % max(p.interval, 1.0) for i, p in enumerate(self.pollers)})
+        last = self._last
+        last.update({id(p): 0.0 for p in self.pollers})
+        poller_of = self._poller_of
+        poller_of.update({cid: p for p in self.pollers for cid in p.comp_ids})
         next_sweep, next_beat = start + self.sweep_every, start
         try:
             while True:
@@ -88,6 +105,7 @@ class Scheduler:
                         due[id(p)], last[id(p)] = now + p.interval, now
                     # a device stopped answering: check the device in front of it right away,
                     # so the real failure is found before the devices behind it raise alarms
+                    comps = self.pipeline.inv.comps            # the inventory can grow (discovery Add)
                     for r in results:
                         dep = comps[r.comp_id].depends_on if not r.reachable and r.comp_id in comps else None
                         up = poller_of.get(dep) if dep else None

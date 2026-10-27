@@ -253,6 +253,10 @@ button.tile.on { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink
 .mob-site { margin-top: 12px; }
 .mob-site summary { cursor: pointer; font-size: 13px; color: var(--ink-2); margin-bottom: 6px; }
 .map-quiet { margin-top: 10px; }
+table.comps.disc tbody tr { cursor: default; }
+table.comps.disc tbody tr:hover td { background: none; }
+#disc-panel .actions-row { align-items: flex-end; }
+#disc-panel .flash { background: var(--s-ok-tint); border-radius: 6px; padding: 8px 12px; color: var(--ink); }
 .issues {
   background: var(--card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 16px;
   box-shadow: var(--shadow);

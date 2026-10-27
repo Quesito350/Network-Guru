@@ -158,7 +158,8 @@ def test_release_ships_the_server_files_without_secrets():
 # Made-up ranges only: the demo site, the tests, Docker's subnets, Starlink's fixed dish address and
 # the documentation ranges. Real site addresses live in the sites folder next to the source, never here.
 ALLOWED_PRIVATE = ["10.200.0.0/16", "10.0.0.0/16", "10.8.0.0/15", "172.17.0.0/16", "172.29.250.0/23",
-                   "192.168.100.1/32", "192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24"]
+                   "192.168.100.1/32", "192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24",
+                   "172.16.0.0/32", "192.168.0.0/32"]       # the RFC 1918 ranges themselves (discovery.py PRIVATE)
 
 
 def test_no_real_site_addresses():

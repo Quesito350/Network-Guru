@@ -102,12 +102,19 @@ class NetmakerCfg(BaseModel):
     token_ref: str = "NETMAKER_TOKEN"
 
 
+class DiscoveryCfg(BaseModel):
+    """The discovery scan's extra ranges (Sites sheet Subnets); the /24s around the devices come on top."""
+    model_config = ConfigDict(extra="allow")
+    ranges: list[str] = Field(default_factory=list)
+
+
 class InventoryFile(BaseModel):
     model_config = ConfigDict(extra="allow")
     site: Site
     defaults: dict[str, Any] = Field(default_factory=dict)
     mobius: MobiusCfg = Field(default_factory=MobiusCfg)
     netmaker: NetmakerCfg = Field(default_factory=NetmakerCfg)
+    discovery: DiscoveryCfg = Field(default_factory=DiscoveryCfg)
     control_room: list[Group] = Field(default_factory=list)
     infrastructure: list[Group] = Field(default_factory=list)
     vehicles: list[Group] = Field(default_factory=list)
@@ -403,13 +410,16 @@ class Inventory:
                 "tabs": tabs}
 
 
-def load_inventory(path: str | Path) -> Inventory:
+def load_raw(path: str | Path) -> dict:
     p = Path(path)
     try:
-        raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError) as e:
         raise InventoryError(f"cannot read {p}: {e}") from e
-    return parse_inventory(raw, str(p))
+
+
+def load_inventory(path: str | Path) -> Inventory:
+    return parse_inventory(load_raw(path), str(path))
 
 
 def parse_inventory(raw: dict, source: str = "") -> Inventory:

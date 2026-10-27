@@ -258,6 +258,28 @@ def _rand31() -> int:
     return int.from_bytes(os.urandom(4), "big") & 0x7FFFFFFF
 
 
+async def engine_probe(host: str, port: int = 161, timeout: float = 1.0) -> bytes | None:
+    """The agent's SNMP engine ID from a v3 discovery request, which carries no login at all (the
+    discovery scan sends logins only to devices that answered this). None: no SNMP answer."""
+    loop = asyncio.get_running_loop()
+    try:
+        transport, proto = await loop.create_datagram_endpoint(_Proto, remote_addr=(host, port))
+    except OSError:
+        return None
+    try:
+        msg_id = _rand31()
+        scoped = seq(tlv(OCTETS, b""), tlv(OCTETS, b""), pdu(GET, msg_id, []))
+        fut = loop.create_future()
+        proto.waiting = fut
+        transport.sendto(v3_message(msg_id, 0x04, b"", 0, 0, b"", None, b"", scoped))
+        raw = await asyncio.wait_for(fut, timeout)
+        return parse_v3(raw).engine or None
+    except (TimeoutError, asyncio.TimeoutError, OSError, SnmpError, IndexError, ValueError):
+        return None
+    finally:
+        transport.close()
+
+
 class SnmpClient:
     """One device. `async with SnmpClient(...) as c:` (or call close())."""
 

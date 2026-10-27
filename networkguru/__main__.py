@@ -9,6 +9,7 @@
   python -m networkguru probe-influx --url URL    the Mobius InfluxDB layout (names only) for the Mobius mapping
   python -m networkguru probe-netmaker            the Netmaker hosts and their tunnel status (NETMAKER_TOKEN)
   python -m networkguru probe-starlink HOST:PORT  what the Starlink reader gets through the router's NAT
+  python -m networkguru scan                      the discovery scan once: what answers on the site's networks
   python -m networkguru version
 """
 
@@ -392,6 +393,45 @@ def cmd_probe_starlink(args) -> int:
     return 0
 
 
+def cmd_scan(args) -> int:
+    import asyncio
+
+    from .discovery import Scanner, ScanError, match, ranges, site_logins
+    from .drivers.reach import icmp_available
+    inv_path = args.inventory or "/site/inventory.yaml"
+    if not Path(inv_path).is_file():
+        print(f"No inventory at {inv_path} - give one with --inventory")
+        return 1
+    inv = load_inventory(inv_path)
+    try:
+        nets = ranges(inv, args.range or [], around=not args.only)
+    except ScanError as e:
+        print(f"Not scanned: {e}")
+        return 1
+    if not nets:
+        print("Nothing to scan: no private addresses in the inventory - give a range with --range 10.200.4.0/24")
+        return 1
+    can_ping, _why = icmp_available()
+    logins = site_logins(inv)
+    print(f"Scanning {', '.join(map(str, nets))} ({sum(n.num_addresses for n in nets)} addresses; "
+          f"ping {'on' if can_ping else 'off'}; {len(logins)} SNMP login(s) from secrets.env, names: "
+          f"{', '.join(x['name'] for x in logins) or 'none'})")
+    scanner = Scanner(logins, can_ping=can_ping)
+    found, tried = asyncio.run(scanner.run(nets))
+    items = match(found, inv)
+    print(f"{len(found)} of {tried} addresses answered; {len(items)} recognised")
+    for it in items:
+        where = f"  ({inv.node_name(it['comp'])}" + (f", was {it['old']}" if it["old"] else "") + ")" if it["comp"] else ""
+        print(f"  {it['outcome']:8} {it['address']:15} {it['type']:14} {it['name'] or '-':24} {'; '.join(it['how'])}{where}")
+    others = [f for f in found if not f.roles]
+    if others:
+        print(f"{len(others)} other hosts answered (not recognised): "
+              + ", ".join(f.address + (f" ({f.name})" if f.name else "") for f in others[:40])
+              + (" ..." if len(others) > 40 else ""))
+    print("Nothing was changed - the dashboard's own scan (Admin page) keeps the review list.")
+    return 0
+
+
 def cmd_dev(args) -> int:
     data_dir = Path(args.data_dir) if args.data_dir else default_data_dir()
     vm_url = None
@@ -526,6 +566,11 @@ def main(argv: list[str] | None = None) -> int:
     pst = sub.add_parser("probe-starlink", help="what the Starlink reader gets from the dish through the router's NAT")
     pst.add_argument("target", help="router address:NAT port that leads to the dish's 192.168.100.1:9201")
     pst.set_defaults(fn=cmd_probe_starlink)
+    sc = sub.add_parser("scan", help="the discovery scan once: what answers on the site's networks (changes nothing)")
+    sc.add_argument("--inventory", help="default: /site/inventory.yaml")
+    sc.add_argument("--range", action="append", help="also scan this private network (repeatable), e.g. 10.200.4.0/24")
+    sc.add_argument("--only", action="store_true", help="only the --range networks, not the /24s around the devices")
+    sc.set_defaults(fn=cmd_scan)
 
     hp = sub.add_parser("hash-password", help="admin password from stdin -> scrypt hash for secrets.env")
     hp.set_defaults(fn=cmd_hash_password)

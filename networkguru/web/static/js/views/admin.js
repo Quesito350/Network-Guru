@@ -2,9 +2,10 @@
 // settings and test send, which secrets are set (never their values), recent system events.
 
 import { errorText, get, post } from "../api.js";
-import { clear, h, setText } from "../dom.js";
+import { append, clear, h, setText } from "../dom.js";
 import { fmtWhen, tz } from "../fmt.js";
-import { store } from "../store.js";
+import { modal } from "../modal.js";
+import { indexInventory, store } from "../store.js";
 import { admin, GIT_UPDATE, onUpdates, openReview, refreshSession, setUpdates, signInForm } from "../updates.js";
 import { eventLink } from "./common.js";
 
@@ -40,7 +41,7 @@ export function adminView(root, nav) {
       load();
     } }));
     body.append(updatesPanel(status.updates), reportPanel(status), mapPanel(status), livePanel(status),
-      secretsPanel(status.secrets), eventsPanel(nav));
+      discoveryPanel(nav, () => alive), secretsPanel(status.secrets), eventsPanel(nav));
   }
 
   const off = onUpdates(() => { if (status && admin.signedIn) refreshUpdatesPanel(); });
@@ -254,6 +255,143 @@ function livePanel(st) {
     h("div", { class: "fields" }, h("label", { class: "field" }, h("span", { text: "Hide after (minutes, 0 = never)" }), mins),
       h("div", { class: "field" }, h("span", { text: "On the tabs" }), h("div", { class: "checks" }, boxes.map((b) => b.el)))),
     h("div", { class: "actions-row" }, save), msg);
+}
+
+// The discovery scan (found.py): what answers on the site's networks, for review. Moved devices are
+// followed by the server itself; new ones wait here for Add (or Ignore).
+const TAB_NAME = { vehicles: "Vehicles", control: "Control Room", infrastructure: "Infrastructure" };
+
+function discoveryPanel(nav, isAlive) {
+  const el = h("section", { class: "panel pad", id: "disc-panel" }, h("h2", { text: "Found on the network" }),
+    h("p", { class: "muted", text: "The network scan looks for the site's devices around the addresses the inventory has "
+      + "(and the Sites sheet's Subnets): Mobius servers, InfluxDB and NTRIP casters by their ports, radios, routers, "
+      + "modems and switches by SNMP with the site's own logins. A device that moved is followed by itself; a new one "
+      + "waits here. Tell IT before the first scan - network security tools may notice it." }));
+  const box = h("div", {});
+  el.append(box);
+  let timer = null;
+
+  async function load(flash = null) {
+    let d;
+    try { d = await get("/api/admin/discovery"); } catch (e) { box.replaceChildren(h("p", { text: e.message })); return; }
+    if (!isAlive()) return;
+    draw(d);
+    if (flash) {
+      const open = h("a", { href: flash.href, text: "Open it" });
+      open.addEventListener("click", (e) => { e.preventDefault(); nav(flash.href); });
+      box.prepend(h("p", { class: "flash", role: "status" }, flash.text, " ", open));
+    }
+    clearTimeout(timer);
+    if (d.running) timer = setTimeout(load, 2000);
+  }
+
+  function draw(d) {
+    clear(box);
+    if (!d.enabled) { box.append(h("p", { class: "muted", text: d.why || "Not available." })); return; }
+    const msg = h("div", { class: "form-msg", role: "status" });
+    const last = d.last;
+    const summary = !last ? "No scan yet."
+      : last.error ? `Last scan ${fmtWhen(last.ts)}: ${last.error}`
+        : `Last scan ${fmtWhen(last.ts)}${last.who && last.who !== "nightly" ? ` by ${last.who}` : " (nightly)"}: `
+          + `${last.addresses} addresses in ${last.ranges.length} range${last.ranges.length === 1 ? "" : "s"}, ${last.answered} answered, `
+          + `${d.known} already in the inventory · ${Math.max(1, Math.round(last.duration_s / 60))} min`;
+    const scan = h("button", { class: "btn primary", type: "button", text: d.running ? "Scanning…" : "Scan now", disabled: d.running,
+      onclick: async () => {
+        scan.disabled = true;
+        try { await post("/api/admin/discovery/scan"); load(); } catch (e) { setText(msg, e.message); scan.disabled = false; }
+      } });
+    const when = h("input", { type: "text", size: 6, value: d.time || "", placeholder: "02:00", "aria-label": "Nightly scan time" });
+    const saveWhen = h("button", { class: "btn", type: "button", text: "Save", onclick: async () => {
+      try { await post("/api/admin/settings", { discovery_time: when.value.trim() }, "PUT"); setText(msg, "Saved."); }
+      catch (e) { setText(msg, e.message); }
+    } });
+    const csv = h("a", { class: "btn", href: "/api/admin/discovery/export.csv", text: "Download new ones for devices.xlsx" });
+    append(box, [h("p", { text: summary }),
+      last && last.ranges?.length ? h("p", { class: "muted small", text: `Ranges: ${last.ranges.join(", ")}` }) : null,
+      d.running && d.progress ? h("p", { class: "ink2", text: `Scanning - ${d.progress.phase}: ${d.progress.done} of ${d.progress.total}` }) : null,
+      h("div", { class: "actions-row" }, scan, csv,
+        h("label", { class: "field" }, h("span", { text: "Nightly at (site time, empty = off)" }), when), saveWhen),
+      msg]);
+    const list = (title, rows, cols, render, open = true) => {
+      if (!rows.length) return;
+      const table = h("table", { class: "comps disc" }, h("thead", {}, h("tr", {}, ...cols.map((t) => h("th", { text: t })))),
+        h("tbody", {}, rows.map(render)));
+      const wrap = h("div", { class: "table-scroll" }, table);
+      box.append(open ? h("div", {}, h("h3", { class: "mob-h3", text: `${title} (${rows.length})` }), wrap)
+        : h("details", { class: "mob-site" }, h("summary", { text: `${title} (${rows.length})` }), wrap));
+    };
+    const seen = (x) => h("td", { class: "muted", text: x.first && x.last && x.first !== x.last ? `${fmtWhen(x.first)} - ${fmtWhen(x.last)}` : fmtWhen(x.last) });
+    const what = (x) => h("td", {}, h("b", { text: x.label }), x.model ? h("div", { class: "muted small", text: x.model }) : null);
+    const items = d.items || [];
+    const fresh = items.filter((x) => !x.ignored && x.outcome === "new");
+    const changed = items.filter((x) => !x.ignored && x.outcome === "changed");
+    list("New", fresh, ["What", "Name", "Address", "How it was found", "Seen", ""], (x) => h("tr", {}, what(x),
+      h("td", { text: x.name || "–" }), h("td", { class: "num", text: x.address }), h("td", { class: "muted", text: x.how.join("; ") }),
+      seen(x), h("td", {}, h("button", { class: "btn", type: "button", text: "Add…", onclick: () => addDialog(x, d, nav, load) }),
+        " ", h("button", { class: "linkish", type: "button", text: "Ignore", onclick: () => ignore(x.key, true) }))));
+    list("Answers as something else", changed, ["What it says it is", "Address", "The inventory has", "How", ""], (x) => h("tr", {}, what(x),
+      h("td", { class: "num", text: x.address }), h("td", { text: x.comp_name || "–" }), h("td", { class: "muted", text: x.how.join("; ") }),
+      h("td", {}, h("button", { class: "linkish", type: "button", text: "Ignore", onclick: () => ignore(x.key, true) }))));
+    list("Moved - followed to their new address", d.moves || [], ["Device", "From", "To", "When", "Known by"], (m) => h("tr", {},
+      h("td", { text: m.name }), h("td", { class: "num", text: m.old || "–" }), h("td", { class: "num", text: m.new }),
+      h("td", { class: "muted", text: fmtWhen(m.ts) }), h("td", { class: "muted", text: m.how })));
+    list("Added from the scan", items.filter((x) => x.outcome === "added"), ["What", "Address", "Now in the dashboard as"], (x) => h("tr", {},
+      what(x), h("td", { class: "num", text: x.address }), h("td", { text: x.comp_name || x.comp || "–" })), false);
+    list("Ignored", items.filter((x) => x.ignored), ["What", "Name", "Address", ""], (x) => h("tr", {}, what(x),
+      h("td", { text: x.name || "–" }), h("td", { class: "num", text: x.address }),
+      h("td", {}, h("button", { class: "linkish", type: "button", text: "Show again", onclick: () => ignore(x.key, false) }))), false);
+    list("Other hosts that answered (not recognised)", d.others || [], ["Address", "Name", "MAC"], (o) => h("tr", {},
+      h("td", { class: "num", text: o.address }), h("td", { text: o.name || "–" }), h("td", { class: "num", text: o.mac || "–" })), false);
+    if (last && !last.error && !fresh.length && !changed.length) box.append(h("p", { class: "muted", text: "Nothing new to review." }));
+  }
+
+  async function ignore(key, on) {
+    try { await post("/api/admin/discovery/ignore", { key, ignore: on }); } catch { /* shown on the next load */ }
+    load();
+  }
+
+  load();
+  return el;
+}
+
+function addDialog(x, d, nav, done) {
+  const roleKind = { mobius_server: "server", influxdb: "server", mobius_client: "client", gnss_base: "tower" };
+  const mobiusGroup = d.groups.find((g) => (x.type === "mobius_server" || x.type === "influxdb") && g.kind === "server");
+  const name = h("input", { type: "text", value: x.name || `${x.label} ${x.address}`, maxlength: 60 });
+  const type = h("select", { class: "btn" }, ...Object.entries(d.types).sort((a, b) => a[1].localeCompare(b[1]))
+    .map(([k, label]) => h("option", { value: k, text: label, selected: k === x.type })));
+  const group = h("select", { class: "btn" }, h("option", { value: "", text: "A new group…" }),
+    ...["vehicles", "control", "infrastructure"].map((tab) => h("optgroup", { label: TAB_NAME[tab] },
+      ...d.groups.filter((g) => g.tab === tab).map((g) => h("option", { value: g.id, text: g.name, selected: g.id === mobiusGroup?.id })))));
+  const gname = h("input", { type: "text", value: x.name || "", maxlength: 60, placeholder: "e.g. Truck 14 or Mobius PC 2" });
+  const kind = h("select", { class: "btn" }, ...d.kinds.map((k) => h("option", { value: k, text: k, selected: k === (roleKind[x.type] || "tower") })));
+  const newBox = h("div", { class: "fields" }, h("label", { class: "field" }, h("span", { text: "New group name" }), gname),
+    h("label", { class: "field" }, h("span", { text: "Kind" }), kind));
+  const showNew = () => newBox.classList.toggle("hidden", group.value !== "");
+  group.addEventListener("change", showNew);
+  showNew();
+  const msg = h("div", { class: "form-msg", role: "alert" });
+  let close = null;
+  const ok = h("button", { class: "btn primary", type: "button", text: "Add to the dashboard", onclick: async () => {
+    ok.disabled = true;
+    setText(msg, "");
+    try {
+      const r = await post("/api/admin/discovery/add", { key: x.key, name: name.value, type: type.value, group_id: group.value || null,
+        group_name: gname.value, kind: kind.value });
+      indexInventory(await get("/api/inventory"));          // this page knows the new device at once
+      close();
+      done({ text: `Added: ${name.value} - checked from now on, in ${TAB_NAME[r.tab]} → ${store.groups[r.group]?.name || r.group}.`,
+        href: `#/${r.tab}/${r.group}` });
+    } catch (e) { setText(msg, e.message); ok.disabled = false; }
+  } });
+  const body = h("div", {},
+    h("p", { class: "muted", text: `${x.label} at ${x.address}${x.how.length ? ` - ${x.how.join("; ")}` : ""}. It is checked from now on `
+      + "(no restart); the site's devices.xlsx is not changed - use Download for devices.xlsx to bring it there too." }),
+    h("div", { class: "fields" }, h("label", { class: "field" }, h("span", { text: "Name" }), name),
+      h("label", { class: "field" }, h("span", { text: "Type" }), type),
+      h("label", { class: "field" }, h("span", { text: "Group" }), group)),
+    newBox, h("div", { class: "actions-row" }, ok), msg);
+  close = modal("Add a found device", body);
 }
 
 function secretsPanel(list) {

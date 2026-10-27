@@ -31,6 +31,7 @@ DEFAULTS: dict[str, Any] = {
     "map_background": "satellite",   # satellite | street | none (maptiles.py)
     "hide_quiet_min": 60,            # Live leaves out a group with no answer for this long (0 = never)
     "hide_quiet_tabs": ["vehicles", "control", "infrastructure"],
+    "discovery_time": "02:00",       # the nightly network scan, site time ("" = no nightly scan)
 }
 HIDE_TABS = ("vehicles", "control", "infrastructure")
 _EMAIL = re.compile(r"^[^@\s,;<>\"]+@[^@\s,;<>\"]+\.[^@\s,;<>\"]+$")
@@ -49,7 +50,9 @@ def validate(patch: dict[str, Any]) -> dict[str, Any]:
     for key, value in patch.items():
         if key not in DEFAULTS:
             raise ValueError(f"unknown setting '{key}'")
-        if key in ("update_check_time", "report_time"):
+        if key == "discovery_time" and str(value or "").strip() == "":
+            out[key] = ""
+        elif key in ("update_check_time", "report_time", "discovery_time"):
             if not valid_hhmm(str(value)):
                 raise ValueError(f"{key}: use HH:MM, 24-hour (for example 06:30)")
             out[key] = str(value)

@@ -204,6 +204,69 @@ async def put_settings(request: Request, who: Session = Depends(require_admin)):
     return r.settings_state.data
 
 
+# -- the discovery scan (found.py) ---------------------------------------------------------------
+def _discovery(request: Request):
+    d = rt(request).discovery
+    if d is None:
+        raise HTTPException(409, "the network scan runs in live mode only")
+    return d
+
+
+@router.get("/discovery")
+async def discovery_status(request: Request, who: Session = Depends(require_admin)):
+    r = rt(request)
+    return r.discovery.public() if r.discovery else {"enabled": False, "why": "The network scan runs in live mode only."}
+
+
+@router.post("/discovery/scan")
+async def discovery_scan(request: Request, who: Session = Depends(require_admin)):
+    d = _discovery(request)
+    if not d.start(who.name):
+        raise HTTPException(409, "a scan is already running")
+    _event(request, "Network scan started", 0, who.name)
+    return {"started": True}
+
+
+class AddIn(BaseModel):
+    key: str
+    name: str
+    type: str
+    group_id: str | None = None
+    group_name: str = ""
+    kind: str = ""
+
+
+@router.post("/discovery/add")
+async def discovery_add(request: Request, body: AddIn, who: Session = Depends(require_admin)):
+    d = _discovery(request)
+    try:
+        cid = d.add(body.key, name=body.name, ctype=body.type, group_id=body.group_id or None,
+                    group_name=body.group_name, kind=body.kind, who=who.name)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    r = rt(request)
+    _event(request, f"Added from the network scan: {r.inv.node_name(cid)} ({r.inv.comps[cid].host})", 0, who.name)
+    return {"id": cid, "group": r.inv.comp_group[cid], "tab": r.inv.group_tab[r.inv.comp_group[cid]]}
+
+
+class IgnoreIn(BaseModel):
+    key: str
+    ignore: bool = True
+
+
+@router.post("/discovery/ignore")
+async def discovery_ignore(request: Request, body: IgnoreIn, who: Session = Depends(require_admin)):
+    _discovery(request).ignore(body.key, body.ignore)
+    return {"ok": True}
+
+
+@router.get("/discovery/export.csv")
+async def discovery_export(request: Request, who: Session = Depends(require_admin)):
+    r = rt(request)
+    return Response(_discovery(request).export_csv(), media_type="text/csv", headers={
+        "Content-Disposition": f'attachment; filename="networkguru-found-{r.inv.site.id}.csv"'})
+
+
 @router.post("/report/test")
 async def report_test(request: Request, who: Session = Depends(require_admin)):
     return await rt(request).reports.send_test(who.name)
