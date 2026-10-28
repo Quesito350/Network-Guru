@@ -173,12 +173,17 @@ class FakeModbus:
             w.close()
 
 
-# -- InfluxDB 1.x ------------------------------------------------------------------
-class FakeInflux:
-    """measurements: {name: {"fields": {f: type}, "tags": {tag: [values]}, "points": [(time, {tag: v}, {f: v})]}}."""
+# -- InfluxDB (InfluxQL; 1.x, or 3.x through its 1.x API) ---------------------------
+UNIT_S = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 
-    def __init__(self, database: str, measurements: dict):
-        self.database, self.measurements = database, measurements
+
+class FakeInflux:
+    """measurements: {name: {"fields": {f: type}, "tags": {tag: [values]}, "points": [(time, {tag: v}, {f: v})]}}.
+    Every query is kept in `queries`; `now() - N<unit>` windows are applied."""
+
+    def __init__(self, database: str, measurements: dict, version: str = "1.8.10"):
+        self.database, self.measurements, self.version = database, measurements, version
+        self.queries: list[str] = []
         outer = self
 
         class H(BaseHTTPRequestHandler):
@@ -189,10 +194,11 @@ class FakeInflux:
                 u = urlsplit(self.path)
                 if u.path == "/ping":
                     self.send_response(204)
-                    self.send_header("X-Influxdb-Version", "1.8.10")
+                    self.send_header("X-Influxdb-Version", outer.version)
                     self.end_headers()
                     return
                 q = parse_qs(u.query).get("q", [""])[0]
+                outer.queries.append(q)
                 body = json.dumps({"results": [{"statement_id": 0, "series": outer.answer(q)}]}).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -221,12 +227,12 @@ class FakeInflux:
         if q.startswith("SHOW TAG VALUES") and meas:
             key = re.search(r'WITH KEY = "([^"]+)"', q).group(1)
             return [{"name": m.group(1), "columns": ["key", "value"], "values": [[key, v] for v in meas["tags"].get(key, [])]}]
+        win = re.search(r"now\(\) - (\d+)([smhd])", q)
+        pts = sorted(meas["points"], key=lambda p: -p[0]) if meas else []
+        if win:
+            pts = [p for p in pts if p[0] > time.time() - int(win.group(1)) * UNIT_S[win.group(2)]]
+        lim = re.search(r"LIMIT (\d+)", q)
         if q.startswith("SELECT *") and meas:                   # the explorer: GROUP BY * ... LIMIT n
-            win = re.search(r"now\(\) - (\d+)m", q)
-            lim = re.search(r"LIMIT (\d+)", q)
-            pts = sorted(meas["points"], key=lambda p: -p[0])
-            if win:
-                pts = [p for p in pts if p[0] > time.time() - int(win.group(1)) * 60]
             fields = list(meas["fields"])
             series: dict = {}
             for t, tags, vals in pts:
@@ -238,9 +244,11 @@ class FakeInflux:
         if q.startswith("SELECT") and meas:
             fields = re.findall(r'"([^"]+)"', q.split(" FROM ")[0])
             group = re.search(r'GROUP BY "([^"]+)"', q)
-            pts = sorted(meas["points"], key=lambda p: -p[0])
+            pts = [p for p in pts if any(p[2].get(f) is not None for f in fields)]       # points with a selected field
             if not group:
-                return [{"name": m.group(1), "columns": ["time", *fields], "values": [[pts[0][0], *[pts[0][2].get(f) for f in fields]]]}] if pts else []
+                pts = pts[:int(lim.group(1))] if lim else pts
+                return [{"name": m.group(1), "columns": ["time", *fields],
+                         "values": [[t, *[vals.get(f) for f in fields]] for t, _tags, vals in pts]}] if pts else []
             out, seen = [], set()
             for t, tags, vals in pts:
                 key = tags.get(group.group(1))

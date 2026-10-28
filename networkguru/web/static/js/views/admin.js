@@ -299,14 +299,20 @@ function discoveryPanel(nav, isAlive) {
         : `Last scan ${fmtWhen(last.ts)}${last.who && last.who !== "nightly" ? ` by ${last.who}` : " (nightly)"}: `
           + `${last.addresses} addresses in ${last.ranges.length} range${last.ranges.length === 1 ? "" : "s"}, ${last.answered} answered, `
           + `${d.known} already in the inventory · ${Math.max(1, Math.round(last.duration_s / 60))} min`;
-    const scan = h("button", { class: "btn primary", type: "button", text: d.running ? "Scanning…" : "Scan now", disabled: d.running,
-      onclick: async () => {
-        scan.disabled = true;
-        try { await post("/api/admin/discovery/scan"); load(); } catch (e) { setText(msg, e.message); scan.disabled = false; }
-      } });
     const when = h("input", { type: "text", size: 6, value: d.time || "", placeholder: "02:00", "aria-label": "Nightly scan time" });
     const nets = h("input", { type: "text", class: "disc-nets", value: (d.ranges || []).join(", "),
       placeholder: "e.g. 10.200.1.0/24, 10.200.4.0/24", "aria-label": "Also scan these networks" });
+    const edited = () => nets.value.trim() !== (d.ranges || []).join(", ") || when.value.trim() !== (d.time || "");
+    const scan = h("button", { class: "btn primary", type: "button", text: d.running ? "Scanning…" : "Scan now", disabled: d.running,
+      onclick: async () => {
+        scan.disabled = true;
+        try {
+          // what is typed in the boxes counts: save it first, so the scan never leaves a typed network out
+          if (edited()) await post("/api/admin/settings", { discovery_time: when.value.trim(), discovery_ranges: nets.value }, "PUT");
+          await post("/api/admin/discovery/scan");
+          load();
+        } catch (e) { setText(msg, e.message); scan.disabled = false; }
+      } });
     const saveWhen = h("button", { class: "btn", type: "button", text: "Save", onclick: async () => {
       saveWhen.disabled = true;
       try {

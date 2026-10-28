@@ -16,15 +16,20 @@ from pathlib import Path
 
 from ..catalog import TYPES
 
-SITE_COLS = ["Site", "Name", "Time zone", "Lat", "Lon", "Mobius InfluxDB URL", "Netmaker URL", "Subnets",
-             "Infrastructure subnet", "Notes"]
+SITE_COLS = ["Site", "Name", "Time zone", "Lat", "Lon", "Mobius InfluxDB URL", "Mobius vehicle tag", "Netmaker URL",
+             "Subnets", "Infrastructure subnet", "Notes"]
 GROUP_COLS = ["Site", "Group", "Kind", "Mobius asset", "Netmaker host", "Access", "Expected online", "Has VAI",
               "Lat", "Lon", "Notes"]
 DEVICE_COLS = ["Site", "Group", "Type", "Name", "Model", "Serial", "MAC", "Address", "IP", "API address", "Link",
                "Role", "Install RSSI", "Switch port", "Firmware", "Monitor", "Modbus unit", "Notes"]
+MAP_COLS = ["Site", "Type", "Value", "Mobius table", "Field", "Text values", "Notes"]
+MOBIUS_TYPES = ["vcu", "gnss", "vai", "mobius_ntrip", "mobius_server", "influxdb"]
+MOBIUS_VALUES = sorted({s.metric for t in MOBIUS_TYPES for ch in TYPES[t].charts for s in ch.series
+                        if s.metric not in ("tcp_ms", "ping_rtt_ms", "ping_loss_pct", "mobius_up")} | {"lat", "lon"})
 KINDS = ["vehicle", "trailer", "cow", "tower", "building", "repeater", "core", "server", "client"]
 LISTS = {"Kind": KINDS, "Type": sorted(TYPES), "Address": ["static", "dhcp"], "Role": ["master", "slave"],
          "Monitor": ["yes", "no"], "Has VAI": ["yes", "no"], "Access": ["rajant", "celona"]}
+MAP_LISTS = {"Type": MOBIUS_TYPES}            # the Value names are too many for an Excel list (255 characters)
 README = [
     "Network Guru - site devices",
     "",
@@ -41,6 +46,14 @@ README = [
     "Modbus unit (Cerbo GX): the solar charger's unit ID, for its charger state and daily yield - on the Cerbo:",
     "  Settings > Services > Modbus TCP > Available services. Without it the battery, PV and load values still come.",
     "Vehicles with a Mobius asset name get VCU and GNSS checks (and VAI when Has VAI = yes) automatically.",
+    "",
+    "Mobius map: where each value is in the Mobius InfluxDB - one row per value (probe-influx lists the tables).",
+    "  Site empty = every site. Type: vcu, gnss, vai, mobius_ntrip, mobius_server or influxdb. Value: the dashboard's",
+    "  name for it (lat / lon = the map position). Mobius table + Field (empty = Value). Text values turn text into",
+    "  numbers, e.g. Fixed=4, Float=5, (empty)=0, *=0 (* = anything else). The vehicle is in the tag named in",
+    "  Sites > Mobius vehicle tag. mobius_server: mobius_assets = the link table (vehicles whose newest value is",
+    "  true), mobius_clients = a table + field whose different values in the last 5 minutes are the clients.",
+    "  influxdb: influx_write_age_s = a table Mobius writes all the time (its newest point = the data age).",
     "",
     "WireGuard (Netmaker): put the gateway's API address in Sites > Netmaker URL (e.g. https://api.example.com) and,",
     "  on each vehicle / location that has a tunnel, its host name as Netmaker shows it in Groups > Netmaker host.",
@@ -61,7 +74,15 @@ class Sheet:
     sites: list[dict] = field(default_factory=list)
     groups: list[dict] = field(default_factory=list)
     devices: list[dict] = field(default_factory=list)
+    mobius_map: list[dict] = field(default_factory=list)
     log: list[str] = field(default_factory=list)
+
+    def map_rows(self, site: str) -> list[dict]:
+        """The Mobius map rows for one site: the site's own rows win over the every-site ones (Site empty)."""
+        mine = [r for r in self.mobius_map if _eq(r["Site"], site)]
+        taken = {(r["Type"].strip().lower(), r["Value"].strip()) for r in mine}
+        return mine + [r for r in self.mobius_map if not r["Site"].strip()
+                       and (r["Type"].strip().lower(), r["Value"].strip()) not in taken]
 
     # -- lookups / upserts -----------------------------------------------
     def site(self, site: str) -> dict | None:
@@ -136,7 +157,7 @@ class Sheet:
         wb = openpyxl.load_workbook(p, data_only=True)
         try:
             return cls(sites=_read(wb, "Sites", SITE_COLS), groups=_read(wb, "Groups", GROUP_COLS),
-                       devices=_read(wb, "Devices", DEVICE_COLS))
+                       devices=_read(wb, "Devices", DEVICE_COLS), mobius_map=_read(wb, "Mobius map", MAP_COLS))
         finally:
             wb.close()
 
@@ -150,7 +171,8 @@ class Sheet:
         head_fill = PatternFill("solid", fgColor="032C44")
         for title, cols, rows in (("Sites", SITE_COLS, sorted(self.sites, key=lambda r: r["Site"].lower())),
                                   ("Groups", GROUP_COLS, self._sorted_groups()),
-                                  ("Devices", DEVICE_COLS, self._sorted_devices())):
+                                  ("Devices", DEVICE_COLS, self._sorted_devices()),
+                                  ("Mobius map", MAP_COLS, self.mobius_map)):
             ws = wb.create_sheet(title)
             ws.append(cols)
             for c in ws[1]:
@@ -161,7 +183,7 @@ class Sheet:
             for i, c in enumerate(cols, start=1):
                 width = max([len(c)] + [len(str(r.get(c, ""))) for r in rows]) + 2
                 ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = min(48, width)
-            for c, values in LISTS.items():
+            for c, values in (MAP_LISTS if title == "Mobius map" else LISTS).items():
                 if c in cols:
                     letter = openpyxl.utils.get_column_letter(cols.index(c) + 1)
                     dv = DataValidation(type="list", formula1='"' + ",".join(values) + '"', allow_blank=True)

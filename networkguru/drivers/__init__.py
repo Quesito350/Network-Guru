@@ -6,7 +6,8 @@
     starlink.py   the Starlink dish's status API through the router's NAT
     netmaker.py   WireGuard tunnels from the Netmaker gateway
     modbus.py     Modbus TCP client; victron.py: the Cerbo GX registers
-    influx.py     InfluxDB 1.x client + probe-influx; mobius.py / mobius_map.py: the mapped Mobius reader;
+    influx.py     InfluxDB client (InfluxQL: 1.x, and 3.x through its 1.x API) + probe-influx;
+                  mobius.py / mobius_map.py: the mapped Mobius reader (the map: devices.xlsx "Mobius map");
                   mobius_explore.py: everything else Mobius has (shown on the pages, never a status)
     readers.py    the per-device readers; device.py: one poller per device (ping + ports + reader)
 """
@@ -17,7 +18,8 @@ from collections import Counter
 
 from ..catalog import TYPES, type_spec
 
-NOT_MAPPED = "Not mapped yet - run probe-influx at the site and send its output (Mobius values)"
+NOT_MAPPED = ("Not mapped yet - add its values to the Mobius map sheet of devices.xlsx (probe-influx lists "
+              "the Mobius tables), then build the inventory again")
 NO_INFLUX = "Not checked - no Mobius InfluxDB for this site (Sites sheet: Mobius InfluxDB URL)"
 NO_PING = "Not checked - ping is not permitted on this host, and it has no port to check"
 NO_NETMAKER = "Not checked - no Netmaker gateway for this site (Sites sheet: Netmaker URL)"
@@ -87,7 +89,7 @@ def live_pollers(inv, can_ping: bool, only: set[str] | None = None) -> tuple[lis
             pollers.append(NetmakerPoller(inv, tunnels, netmaker))
     notes = ["Live mode: ping and port checks for every device with an address. Device readers: "
              + (", ".join(f"{k} ×{v}" for k, v in sorted(reading.items())) or "none set up yet")
-             + "; Mobius: " + (f"{len(mobius)} components read" if mobius else "not mapped yet (run probe-influx)" if url
+             + "; Mobius: " + (f"{len(mobius)} components read" if mobius else "not mapped yet (Mobius map sheet)" if url
                                else "no InfluxDB set")
              + (f"; Netmaker: {len(tunnels)} WireGuard tunnels" if tunnels and not netmaker.missing() else "") + "."]
     if not_set_up:

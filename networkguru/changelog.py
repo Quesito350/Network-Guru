@@ -7,6 +7,20 @@ networkguru.__version__ - release.py refuses to package otherwise).
 """
 
 CHANGES = [
+    ("0.9.2", "2026-10-27", [
+        "The vehicles' VCU, GNSS and VAI cards show Mobius's own values: comms latency and drop, the Mobius link, "
+        "temperatures, supply voltage and CPU; GNSS fix, satellites, correction age and HDOP, and the map position. "
+        "Which Mobius table holds each value is set per site in the new Mobius map sheet of devices.xlsx.",
+        "A vehicle Mobius says is not communicating shows Offline with how long ('not communicating with Mobius for "
+        "2 h'). Values Mobius writes only when they change keep their last value.",
+        "The Mobius Server card counts the communicating vehicles and the connected clients; the Mobius InfluxDB card "
+        "shows how old its newest data is.",
+        "Works with InfluxDB 3 (Mendon's new Mobius server): every question to the database is for a limited time, "
+        "and probe-influx works there too.",
+        "Supply voltage now warns below 11.5 V and is critical below 10.5 V, for 12 V and 24 V vehicles alike.",
+        "Admin → Found on the network: Scan now first saves what is typed in 'Also scan these networks'.",
+        "The Mobius Server's list of names Mobius knows no longer shows user names.",
+    ]),
     ("0.9.1", "2026-10-27", [
         "Admin → Found on the network has an 'Also scan these networks' box: type the networks the scan should "
         "cover too (for example the Mobius server's network, 10.x.y.0/24), Save, then Scan now. No spreadsheet "

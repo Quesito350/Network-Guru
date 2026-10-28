@@ -22,10 +22,25 @@ netmaker:                                   # WireGuard tunnels on the Netmaker 
   token_ref: NETMAKER_TOKEN
 
 mobius:
-  influx_url: http://10.200.1.10:8086      # Mobius InfluxDB (probe it before 0.4 drivers)
+  influx_url: http://10.200.1.10:8086      # Mobius InfluxDB (Sites sheet: Mobius InfluxDB URL)
   version: auto
-  database: null                            # filled in after `probe-influx`
-  asset_tag: null
+  database: null                            # null = every database it has
+  asset_tag: null                           # the tag naming the vehicle (Sites sheet: Mobius vehicle tag)
+  # map: where each value is - written from devices.xlsx's "Mobius map" sheet by build-inventory, one
+  # table per value (probe-influx lists them). The names below are made up; a site's real ones stay in
+  # its own devices.xlsx / inventory.yaml.
+  #   vcu:
+  #     vcu_communicating: {measurement: "Link State", field: Online}       # false = not communicating
+  #     vcu_comms_latency_ms: {measurement: "Link Latency"}                 # field Value
+  #   gnss:
+  #     gnss_mode: {measurement: "Fix Type", values: {Fixed: 4, Float: 5, (empty): 0, "*": 1}}
+  #     lat: {measurement: "Position", field: Lat}
+  #     lon: {measurement: "Position", field: Lon}
+  #   mobius_server:
+  #     mobius_assets: {measurement: "Link State", field: Online}           # vehicles whose newest is true
+  #     mobius_clients: {measurement: "Client Stats", field: Machine}       # different values, last 5 min
+  #   influxdb:
+  #     influx_write_age_s: {measurement: "Server Health"}                  # written all the time
 
 control_room:
   - id: mobius-server

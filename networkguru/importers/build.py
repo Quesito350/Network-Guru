@@ -144,6 +144,12 @@ def build_inventory(sheet: Sheet, site: str, name: str | None = None, timezone: 
     lat = lat if lat is not None else _num(meta.get("Lat"), DEFAULT_LAT, "Lat", report)
     lon = lon if lon is not None else _num(meta.get("Lon"), DEFAULT_LON, "Lon", report)
     influx = (meta.get("Mobius InfluxDB URL") or "").strip()
+    mobius = {"influx_url": influx} if influx else {}
+    if influx and (meta.get("Mobius vehicle tag") or "").strip():
+        mobius["asset_tag"] = meta["Mobius vehicle tag"].strip()
+    mobius_map = _mobius_map(sheet, site, report) if influx else {}
+    if mobius_map:
+        mobius["map"] = mobius_map
     netmaker = (meta.get("Netmaker URL") or "").strip().rstrip("/")
     subnets = [n.strip() for n in (meta.get("Subnets") or "").replace(";", ",").split(",") if n.strip()]
     if netmaker and not re.match(r"^https?://[^\s/]+", netmaker):
@@ -250,7 +256,7 @@ def build_inventory(sheet: Sheet, site: str, name: str | None = None, timezone: 
         "site": {"id": slug(site), "name": name or meta.get("Name") or site.title(),
                  "timezone": timezone or meta.get("Time zone") or DEFAULT_TZ, "lat": lat, "lon": lon},
         "defaults": {"backhaul": backhaul, "types": TYPE_DEFAULTS},
-        **({"mobius": {"influx_url": influx}} if influx else {}),
+        **({"mobius": mobius} if mobius else {}),
         **({"netmaker": {"url": netmaker, "token_ref": "NETMAKER_TOKEN"}} if netmaker else {}),
         **({"discovery": {"ranges": subnets}} if subnets else {}),
         "control_room": tabs["control_room"], "infrastructure": tabs["infrastructure"], "vehicles": tabs["vehicles"],
@@ -272,6 +278,31 @@ def _position(lat: str, lon: str) -> tuple[float, float] | None:
 
 def _infra(sheet: Sheet, site: str) -> str:
     return (sheet.site(site) or {}).get("Infrastructure subnet", "")
+
+
+def _mobius_map(sheet: Sheet, site: str, report: list[str]) -> dict:
+    """The Mobius map sheet's rows for this site -> inventory `mobius.map` ({type: {value: {measurement, ...}}})."""
+    from ..drivers.mobius_map import parse_values
+    from .sheet import MOBIUS_TYPES, MOBIUS_VALUES
+    out: dict[str, dict] = {}
+    for r in sheet.map_rows(site):
+        typ, value, table = r["Type"].strip().lower(), r["Value"].strip(), r["Mobius table"].strip()
+        if not (typ or value or table):
+            continue
+        if typ not in MOBIUS_TYPES or value not in MOBIUS_VALUES or not table:
+            report.append(f"! Mobius map: row '{typ or '-'} / {value or '-'} / {table or '-'}' left out - the Type must be "
+                          f"one of {', '.join(MOBIUS_TYPES)}, the Value a dashboard value name, and the table given")
+            continue
+        spec = {"measurement": table}
+        if r["Field"].strip() and r["Field"].strip() != "Value":
+            spec["field"] = r["Field"].strip()
+        values = parse_values(r["Text values"])
+        if values:
+            spec["values"] = values
+        out.setdefault(typ, {})[value] = spec
+    if out:
+        report.append(f"  Mobius map: {sum(len(v) for v in out.values())} values for {', '.join(sorted(out))}")
+    return out
 
 
 def _num(text, default: float, what: str, report: list[str]) -> float:

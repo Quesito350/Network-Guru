@@ -30,7 +30,7 @@ metrics:
   vcu_cpu_temp_c:         {warn: 80, crit: 90}
   vcu_temp_c:             {warn: 70, crit: 80}
   vcu_cpu_pct:            {warn: 85, crit: 95, for: 2m}
-  vcu_supply_v:           {low_warn: 22.0, low_crit: 20.0}
+  vcu_supply_v:           {low_warn: 11.5, low_crit: 10.5}   # 12 V and 24 V vehicles: a failing supply on either
 
   # GNSS - RTK fixed is OK, float is Warning, anything else Critical
   gnss_mode:              {enum: {4: ok, 5: warning, "*": critical}}

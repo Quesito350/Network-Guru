@@ -104,8 +104,9 @@ python run.py build-inventory ..\sites\devices.xlsx --site mendon --out ..\sites
   - **BC|Commander snapshot:** reads serial, name, model, firmware, IP, MAC and DHCP/static for every BreadCrumb. It matches the IPAM rows by IP and adds vehicles and Tremonton. Mesh keys and passphrases in the snapshot are never read.
   - **devices.csv:** the V&V radio-monitor format (`name, site, type, ip, serial, model, firmware`), plus optional `group, kind, mobius_asset`.
 - **`devices.xlsx`** has a **Sites** sheet, a **Groups** sheet (vehicles, trailers, COW, towers, stations) and a **Devices** sheet, with drop-down lists. Edit it freely: re-imports keep your edits and only refresh IPs, firmware, serials and MACs.
-  - **Sites:** one row per site, with the name shown in the dashboard, the time zone, GPS (for the solar figures), the Mobius InfluxDB URL, the site's *Subnets* (where the snapshot import puts a Rajant on that site) and its *Infrastructure subnet* (where an unnamed Rajant is a tower). `build-inventory` reads it. Without a row, it uses defaults and says so.
-  - **Vehicles:** fill in their *Mobius asset* to get VCU and GNSS checks (set *Has VAI* for VAI).
+  - **Sites:** one row per site, with the name shown in the dashboard, the time zone, GPS (for the solar figures), the Mobius InfluxDB URL and *Mobius vehicle tag* (the tag naming the vehicle, e.g. `Vehicle`), the site's *Subnets* (where the snapshot import puts a Rajant on that site) and its *Infrastructure subnet* (where an unnamed Rajant is a tower). `build-inventory` reads it. Without a row, it uses defaults and says so.
+  - **Vehicles:** fill in their *Mobius asset* (the vehicle's name in Mobius) to get VCU and GNSS checks (set *Has VAI* for VAI).
+  - **Mobius map:** where each Mobius value is - one row per value: Site (empty = every site), Type, Value (the dashboard's name, e.g. `vcu_comms_latency_ms`), Mobius table, Field (empty = `Value`), Text values (e.g. `Fixed=4, Float=5, (empty)=0, *=1`). The real table names stay in your devices.xlsx, never in this repository.
   - **Monitor = no:** marks spare or turned-off devices.
   - **No password columns.** Logins are named once per device type and typed on the server.
 
@@ -154,12 +155,14 @@ In live mode each device is pinged and its ports checked, and its **reader** ask
 | Sierra **XR80 / XR90** (no SNMP) | ALMS (AirVantage) cloud API, by the **Serial** column - only signal and network values are kept | an ALMS API client allowed to view systems (client credentials) | `ALMS_CLIENT_ID`, `ALMS_CLIENT_SECRET` |
 | Starlink | the dish's own status API (latency, drop, obstruction, throughput, alerts) through the trailer router | a NAT on the router to the dish's **192.168.100.1:9201**; the Devices row's **API address** = router address:NAT port | none |
 | WireGuard tunnels | the Netmaker gateway's API: online, last check-in (Pro servers also latency and uptime) | **Netmaker URL** on the Sites sheet, **Netmaker host** on each group with a tunnel; a dedicated Netmaker user's access token, with an expiry | `NETMAKER_TOKEN` |
-| VCU, GNSS (vehicle positions), VAI | the Mobius InfluxDB | InfluxDB reachable on 8086 (the Mobius team's sign-off), then the mapping from `probe-influx` | none (or a user / password by name) |
+| VCU, GNSS (vehicle positions), VAI | the Mobius InfluxDB (1.x, or 3.x through its 1.x API) | InfluxDB reachable on 8086 (the Mobius team's sign-off), then the **Mobius map** sheet of devices.xlsx: one row per value - the Mobius table it is in (`probe-influx` lists them) - and Sites → **Mobius vehicle tag** | none (or a user / password by name) |
+| Mobius Server (communicating vehicles, connected clients), Mobius InfluxDB (newest data age) | the Mobius InfluxDB, through the same sheet (Type `mobius_server` / `influxdb`) | the same | none |
 | **Everything else in Mobius** | the Mobius InfluxDB, read every minute, shown on each vehicle / location / desk page as **Mobius data**; the Mobius Server's page lists what Mobius knows that is not in the inventory | the same InfluxDB access - no mapping needed | none |
 
 - **Firewall:** from the server, UDP 161 (SNMP), TCP 502 (Modbus), TCP 8086 (InfluxDB), the Starlink NAT port, plus ping; out to the internet on 443 for the Netmaker gateway and ALMS (`na.airvantage.net`).
 - **The Netmaker token** can change the VPN on Community Edition (it has no read-only role): it lives only in secrets.env, the dashboard only reads with it, and an expiry date on the token is a good idea.
 - **Rajant's SNMP has no peer count or input voltage**: those charts are filled by the simulator only. The Tachyon MIB does not give units for rx power and tx rate; `probe-snmp` shows the raw numbers to compare with the Tachyon's own page.
+- **Mobius values:** Mobius writes many values only when they change, so the reader keeps each vehicle's last value (it looks back a day when it starts). A vehicle whose Mobius link is false is Offline, "not communicating with Mobius for 2 h". Every query asks for a limited time - InfluxDB 3 refuses queries over all of its data.
 - **A device that answers ping but not its reader** is a Warning, "Device data (snmp): Not read", with the reason on its page.
 - **Readers without their logins** are "not set up" (one note on the dashboard, no warning on every card); the device is still pinged. Adding the logins needs no restart.
 - **Bring-up commands** (on the test install prefix them with `docker compose exec app`):
@@ -168,7 +171,7 @@ In live mode each device is pinged and its ports checked, and its **reader** ask
   - `python -m networkguru probe-netmaker` - the Netmaker host names (for the Groups sheet) and each tunnel's status
   - `python -m networkguru probe-starlink <router address>:<NAT port>` - what the dish gives
   - `python -m networkguru probe-modbus <ip> [--mppt-unit N]`
-  - `python -m networkguru probe-influx --url http://<mobius server>:8086 --out influx-layout.txt` - the database layout, names only (send this file for the Mobius mapping)
+  - `python -m networkguru probe-influx --url http://<mobius server>:8086 --out influx-layout.txt` - the database layout, names only, with each table's newest time of the last 7 days: what goes in the **Mobius map** sheet
 
 ## Things to try
 

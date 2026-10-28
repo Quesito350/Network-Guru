@@ -23,7 +23,8 @@ import re
 import time
 
 from ..config import secret
-from .influx import ASSET_LIKE, InfluxClient, InfluxError, q_ident
+from .influx import ASSET_LIKE, PEOPLE_LIKE, InfluxClient, InfluxError, q_ident
+from .mobius_map import mobius_map
 
 log = logging.getLogger("networkguru.drivers")
 
@@ -31,7 +32,8 @@ EVERY_S = 60.0
 SCHEMA_EVERY_S = 1800.0
 BACKOFF_S = 300.0
 WINDOW = "10m"
-MAX_MEASUREMENTS = 60
+TAG_WINDOW = "1d"
+MAX_MEASUREMENTS = 60          # the mapped ones first (mobius_map), then the rest by name
 MAX_ROWS = 300                 # values kept per group
 MAX_TEXT = 200
 SECRET_LIKE = re.compile(r"pass|secret|token|key|credential|auth", re.IGNORECASE)
@@ -52,6 +54,7 @@ class MobiusExplorer:
         self.user_ref, self.password_ref = ex.get("user_ref") or "", ex.get("password_ref") or ""
         self.timeout = timeout
         self.names = self._names(inv)
+        self.mapped = {s["measurement"] for values in mobius_map(inv).values() for s in values.values()}
         self.schema: dict[tuple[str, str], dict] = {}          # (db, measurement) -> {"fields", "tags", "who"}
         self.schema_at = -1e18
         self.groups: dict[str, dict] = {}                      # gid -> {"t": newest, "rows": [...]}
@@ -112,6 +115,8 @@ class MobiusExplorer:
                     tags = ser.get("tags") or {}
                     who = s["who"]
                     value = tags.get(who) if who else None
+                    if who and value in (None, ""):                         # a point without the tag: site-wide
+                        who = None
                     rest = ", ".join(f"{k}={v}" for k, v in sorted(tags.items()) if k != who and v)
                     rows, pos = self._rows(m, rest, ser)
                     if not rows:
@@ -141,11 +146,13 @@ class MobiusExplorer:
         self.error, self.last_ok = None, now
 
     async def _layout(self, c: InfluxClient) -> dict[tuple[str, str], dict]:
+        await c.ping()                                              # its version: 3.x gets time limits
         dbs = [self.database] if self.database else [v[0] for s in await c.query("SHOW DATABASES")
                                                        for v in s.get("values") or [] if v and v[0] != "_internal"][:3]
         out: dict[tuple[str, str], dict] = {}
         for db in dbs:
             ms = [v[0] for s in await c.query("SHOW MEASUREMENTS", db) for v in s.get("values") or []]
+            ms = [m for m in ms if m in self.mapped] + [m for m in ms if m not in self.mapped]     # the mapped first
             for m in ms[:MAX_MEASUREMENTS]:
                 fields = [v[0] for s in await c.query(f"SHOW FIELD KEYS FROM {q_ident(m)}", db) for v in s.get("values") or []]
                 tags = [v[0] for s in await c.query(f"SHOW TAG KEYS FROM {q_ident(m)}", db) for v in s.get("values") or []]
@@ -157,8 +164,10 @@ class MobiusExplorer:
         if self.asset_tag and self.asset_tag in tags:
             return self.asset_tag
         best, hits = None, 0
+        where = f" WHERE time > now() - {TAG_WINDOW}" if c.v3 else ""     # InfluxDB 3: never over all time
+        tags = [k for k in tags if not PEOPLE_LIKE.search(k)]               # a user name is not a vehicle
         for k in tags[:12]:
-            vals = [v[1] for s in await c.query(f"SHOW TAG VALUES FROM {q_ident(m)} WITH KEY = {q_ident(k)} LIMIT 500", db)
+            vals = [v[1] for s in await c.query(f"SHOW TAG VALUES FROM {q_ident(m)} WITH KEY = {q_ident(k)}{where} LIMIT 500", db)
                     for v in s.get("values") or [] if len(v) > 1]
             n = sum(1 for v in vals if norm(v) in self.names)
             if n > hits:

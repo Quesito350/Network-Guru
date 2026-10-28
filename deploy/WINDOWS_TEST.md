@@ -109,7 +109,7 @@ docker compose cp app:/data/influx-layout.txt .
 ```
 
 - Each probe prints the values it got, or why it could not (wrong login, no answer, port closed).
-- `probe-influx` lists the Mobius database's names only - send `influx-layout.txt` so the next build can map the VCU, GNSS and VAI values. Without the mapping, each vehicle's page already shows everything Mobius has for it (**Mobius data**), and the Mobius Server's page lists the names Mobius uses that are not in the inventory.
+- `probe-influx` lists the Mobius database's names only (with each table's newest time of the last 7 days). The VCU, GNSS and VAI values come from the **Mobius map** sheet of devices.xlsx - one row per value, the Mobius table it is in - and Sites → **Mobius vehicle tag**; after changing it, build the inventory again and copy it to `C:\NetworkGuru\site\` (then `docker compose restart app`). Without the map, each vehicle's page already shows everything Mobius has for it (**Mobius data**), and the Mobius Server's page lists the names Mobius uses that are not in the inventory.
 - `probe-netmaker` lists the Netmaker host names: type each one into the **Netmaker host** column of its vehicle / location on the Groups sheet (and the API address into Sites → **Netmaker URL**), then rebuild the inventory.
 - `probe-starlink` needs the router's dst-nat to the dish's **192.168.100.1:9201**; that `router IP:port` goes into the Starlink row's **API address**.
 - Send the `probe-snmp` output of one Rajant and one Tachyon (it has no logins in it): the Tachyon file does not say the units of rx power and tx rate, so they are checked against the Tachyon's own page.
