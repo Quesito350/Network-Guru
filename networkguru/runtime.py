@@ -13,11 +13,13 @@ import httpx
 from . import __version__, logbuffer
 from .auth import AdminAuth, hash_password
 from .drivers import live_pollers
+from .drivers.mobius import MobiusPoller
 from .drivers.reach import icmp_available
 from .events import EventStore
 from .history import History
 from .inventory import load_inventory
 from .pipeline import Pipeline
+from .positions import VehiclePositions
 from .rules import RuleSet, load_rules
 from .scheduler import Scheduler, sim_pollers
 from .sim.backfill import Progress, backfill
@@ -61,6 +63,7 @@ class Runtime:
         self.updates: UpdateManager | None = None
         self.reports: ReportService | None = None
         self.mobius = None                    # live mode: the Mobius explorer (drivers/mobius_explore.py)
+        self.fleet = None                     # live mode: the Mobius reader, for every vehicle's position (map)
         self.discovery = None                 # live mode: the discovery scan (found.py)
         self.can_ping = False
 
@@ -109,6 +112,9 @@ class Runtime:
             can_ping, why = icmp_available()
             self.can_ping = can_ping
             pollers, self.pipeline.unchecked, notes = live_pollers(self.inv, can_ping)
+            self.fleet = next((p for p in pollers if isinstance(p, MobiusPoller)), None)
+            if self.fleet is not None:                # last positions survive a restart (positions.py)
+                self.fleet.positions = VehiclePositions(Path(s.data_dir) / "state" / "positions.json")
             self.pipeline.sweep()            # show "Not checked yet" at once, not after the first sweep
             self.notes.extend(notes)
             if not can_ping:
@@ -218,6 +224,8 @@ class Runtime:
         for t in self.tasks:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await t
+        if self.fleet is not None:
+            self.fleet.positions.save(force=True)
         if self.events and self.mode == "sim" and self.progress.done:
             self.events.set_meta("sim_until", str(time.time()))
         if self.tsdb:

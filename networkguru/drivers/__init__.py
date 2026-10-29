@@ -30,7 +30,7 @@ def live_pollers(inv, can_ping: bool, only: set[str] | None = None) -> tuple[lis
     components (devices added while running)."""
     from .cellular import UNKNOWN_MODEL
     from .device import DevicePoller
-    from .mobius import MobiusPoller
+    from .mobius import ALWAYS, MobiusPoller
     from .mobius_map import mobius_map
     from .netmaker import NetmakerPoller, api_for
     from .reach import _ipv4
@@ -78,7 +78,9 @@ def live_pollers(inv, can_ping: bool, only: set[str] | None = None) -> tuple[lis
                     reading[what] += 1
         elif not can_ping and _ipv4(c.host):
             unchecked[c.id] = NO_PING
-    if mobius:
+    # the Mobius reader also runs for the map alone (every vehicle's position and link, 0.9.3)
+    fleet = bool(url) and only is None and any((t, k) in ALWAYS for t, values in mapped.items() for k in values)
+    if mobius or fleet:
         pollers.append(MobiusPoller(inv, mobius))
     if tunnels:
         if netmaker.missing():

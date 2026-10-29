@@ -71,6 +71,11 @@ def mobius_map(inv) -> dict[str, dict[str, dict]]:
     return {k: v for k, v in out.items() if v}
 
 
+def map_tables(m: dict[str, dict[str, dict]]) -> set[str]:
+    """Every Mobius table the map reads (find_database picks the database holding them)."""
+    return {s["measurement"] for values in m.values() for s in values.values()}
+
+
 def as_number(spec: dict, v) -> float | None:
     """A Mobius value as a number: numbers as they are, true / false as 1 / 0, text through `values`."""
     if isinstance(v, bool):

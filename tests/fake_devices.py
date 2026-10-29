@@ -177,13 +177,22 @@ class FakeModbus:
 UNIT_S = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 
 
+NO_DB = "must specify a 'db' parameter, or provide the database in the InfluxQL query"
+
+
 class FakeInflux:
     """measurements: {name: {"fields": {f: type}, "tags": {tag: [values]}, "points": [(time, {tag: v}, {f: v})]}}.
-    Every query is kept in `queries`; `now() - N<unit>` windows are applied."""
+    Every query is kept in `queries` (and its db in `dbs`); `now() - N<unit>` windows are applied. As the real
+    one, anything but SHOW DATABASES wants a database (0.9.3). `others`: more databases {name: measurements};
+    `refuse(q)`: an error text for a query to refuse (InfluxDB 3's file limit), else None."""
 
-    def __init__(self, database: str, measurements: dict, version: str = "1.8.10"):
+    def __init__(self, database: str, measurements: dict, version: str = "1.8.10", others: dict | None = None,
+                 refuse=None):
         self.database, self.measurements, self.version = database, measurements, version
+        self.others = others or {}
+        self.refuse = refuse
         self.queries: list[str] = []
+        self.dbs: list[str | None] = []
         outer = self
 
         class H(BaseHTTPRequestHandler):
@@ -197,9 +206,17 @@ class FakeInflux:
                     self.send_header("X-Influxdb-Version", outer.version)
                     self.end_headers()
                     return
-                q = parse_qs(u.query).get("q", [""])[0]
+                args = parse_qs(u.query)
+                q, db = args.get("q", [""])[0], args.get("db", [None])[0]
                 outer.queries.append(q)
-                body = json.dumps({"results": [{"statement_id": 0, "series": outer.answer(q)}]}).encode()
+                outer.dbs.append(db)
+                meas = outer.measurements if db == outer.database else outer.others.get(db)
+                error = (NO_DB if db is None and q != "SHOW DATABASES" else
+                         f"database not found: {db}" if db is not None and meas is None else
+                         outer.refuse(q) if outer.refuse else None)
+                res = {"statement_id": 0, "error": error} if error else \
+                    {"statement_id": 0, "series": outer.answer(q, meas if meas is not None else {})}
+                body = json.dumps({"results": [res]}).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
@@ -213,13 +230,14 @@ class FakeInflux:
     def close(self):
         self.server.shutdown()
 
-    def answer(self, q: str) -> list[dict]:
+    def answer(self, q: str, measurements: dict) -> list[dict]:
         m = re.search(r'FROM "([^"]+)"', q)
-        meas = self.measurements.get(m.group(1)) if m else None
+        meas = measurements.get(m.group(1)) if m else None
         if q == "SHOW DATABASES":
-            return [{"name": "databases", "columns": ["name"], "values": [["_internal"], [self.database]]}]
+            return [{"name": "databases", "columns": ["name"],
+                     "values": [["_internal"], [self.database], *[[d] for d in self.others]]}]
         if q == "SHOW MEASUREMENTS":
-            return [{"name": "measurements", "columns": ["name"], "values": [[k] for k in self.measurements]}]
+            return [{"name": "measurements", "columns": ["name"], "values": [[k] for k in measurements]}]
         if q.startswith("SHOW FIELD KEYS") and meas:
             return [{"name": m.group(1), "columns": ["fieldKey", "fieldType"], "values": [[f, t] for f, t in meas["fields"].items()]}]
         if q.startswith("SHOW TAG KEYS") and meas:

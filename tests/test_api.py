@@ -32,6 +32,8 @@ def test_meta_inventory_live(client):
     live = client.get("/api/live").json()
     assert {"autocar-2845", "trailer-48", "vehicles", "t48-gx"} <= set(live["nodes"])
     assert client.get("/api/live/t48-gx").json()["tab"] == "infrastructure"
+    # the simulator's vehicles come with their GNSS info; the Mobius positions are live mode only (0.9.3)
+    assert client.get("/api/map/vehicles").json() == {"enabled": False, "vehicles": []}
 
 
 def test_history_endpoints(client):

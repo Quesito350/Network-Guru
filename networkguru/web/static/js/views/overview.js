@@ -2,14 +2,14 @@
 // per vehicle / desk / location. In Live, groups that have gone quiet are left out (quiet.js).
 
 import { get } from "../api.js";
-import { clear, h, setClass, setText } from "../dom.js";
-import { fmtAgo, fmtPct, fmtValue, fmtWhen, metricLevel, statusName, STATUS_LABEL, typeSpec } from "../fmt.js";
+import { h, setClass, setText } from "../dom.js";
+import { fmtAgo, fmtPct, fmtValue, metricLevel, statusName, STATUS_LABEL, typeSpec } from "../fmt.js";
 import { isQuiet, quietText, setShowHidden, showHidden } from "../quiet.js";
 import { badge, dot, updateBadge, updateDot } from "../status.js";
 import { node, rangeLabel, store, window_ } from "../store.js";
 import { miniPath } from "../widgets/path.js";
 import { battery, sparkline, statusStrip } from "../widgets/small.js";
-import { TAB_TITLE, vehicleHops } from "./common.js";
+import { attentionRows, fillAttention, TAB_TITLE, vehicleHops } from "./common.js";
 
 const KIND_LABEL = { trailer: "Solar trailer", tower: "Tower", building: "Building", repeater: "Repeater", core: "Network core",
   cow: "COW (base of the 60 GHz backhaul)", server: "Server", client: "Client", vehicle: "Vehicle" };
@@ -206,31 +206,7 @@ export function overviewView(root, tabId, nav) {
   }
 
   function updateIssues() {
-    clear(issues);
-    const rows = [];
-    for (const g of groups) {
-      if (hiddenIds.has(g.id)) continue;
-      const gn = node(g.id);
-      for (const c of g.components) {
-        const n = node(c.id);
-        if ((n.s === 3 || n.s === 4) && !n.sup) rows.push({ g, c, n });
-      }
-      if ((gn.s === 3 || gn.s === 4) && !rows.some((r) => r.g === g)) rows.push({ g, c: null, n: gn });
-    }
-    rows.sort((a, b) => b.n.s - a.n.s || (a.n.since || 0) - (b.n.since || 0));
-    if (!rows.length) {
-      issues.append(h("li", { class: "none", text: "Nothing needs attention." }));
-      return;
-    }
-    for (const r of rows.slice(0, 30)) {
-      const href = r.c ? `#/c/${r.c.id}` : `#/${tabId}/${r.g.id}`;
-      const a = h("a", { href }, badge(r.n.s, { small: true }),
-        h("span", { text: r.c ? `${r.g.name} · ${r.c.name}` : r.g.name }),
-        h("span", { class: "why", text: (r.n.r || []).join(" · ") }),
-        h("span", { class: "muted when", text: r.n.since ? `since ${fmtWhen(r.n.since)}` : "" }));
-      a.addEventListener("click", (e) => { e.preventDefault(); nav(href); });
-      issues.append(h("li", {}, a));
-    }
+    fillAttention(issues, attentionRows(groups, hiddenIds), nav);
   }
 
   function update() {

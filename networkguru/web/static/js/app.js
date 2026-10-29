@@ -1,5 +1,5 @@
-// Bootstrap: header (Live/History, range), tabs, routing, events drawer, help, What's new,
-// and the update banner.
+// Bootstrap: header (Live/History, range), tabs (Overview first - the start page), routing, events
+// drawer, help, What's new, and the update banner.
 
 import { connectLive, get } from "./api.js";
 import { clear, h, s, setText } from "./dom.js";
@@ -13,13 +13,14 @@ import { initUpdates } from "./updates.js";
 import { adminView } from "./views/admin.js";
 import { eventLink, TAB_TITLE } from "./views/common.js";
 import { componentView, groupView } from "./views/detail.js";
+import { homeView } from "./views/home.js";
 import { mapView } from "./views/map.js";
 import { overviewView } from "./views/overview.js";
 import { reportView } from "./views/report.js";
 import { hideTip } from "./widgets/chart.js";
 
 const TABS = ["vehicles", "control", "infrastructure"];
-const PAGES = ["admin", "report", "map"];
+const PAGES = ["overview", "admin", "report", "map"];
 let current = null;
 let route = { parts: [], key: "" };
 
@@ -27,7 +28,8 @@ function lsGet(k) { try { return localStorage.getItem(k); } catch { return null;
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch { /* private window */ } }
 
 // ---------------------------------------------------------------------------
-// routing: #/vehicles, #/vehicles/<id>, #/c/<component>, #/admin, #/report, + ?mode=history&range=7d | &from=&to=
+// routing: #/overview, #/vehicles, #/vehicles/<id>, #/c/<component>, #/admin, #/report, #/map,
+// + ?mode=history&range=7d | &from=&to=
 function parseHash() {
   const raw = location.hash.replace(/^#\/?/, "");
   const [path, query] = raw.split("?");
@@ -41,7 +43,7 @@ function parseHash() {
   } else {
     store.range = ["1h", "24h", "7d", "30d"].includes(q.get("range")) ? q.get("range") : "24h";
   }
-  if (!parts.length || (!TABS.includes(parts[0]) && !PAGES.includes(parts[0]) && parts[0] !== "c")) parts.splice(0, parts.length, "vehicles");
+  if (!parts.length || (!TABS.includes(parts[0]) && !PAGES.includes(parts[0]) && parts[0] !== "c")) parts.splice(0, parts.length, "overview");
   return { parts, key: parts.join("/") + "?" + (query || "") };
 }
 
@@ -61,7 +63,7 @@ function setTimeQuery() {
   const [path, query] = location.hash.split("?");
   const show = new URLSearchParams(query || "").get("show");      // keep a tile filter across Live / History
   const qs = queryString();
-  location.hash = (path || "#/vehicles") + (show ? (qs ? `${qs}&show=${show}` : `?show=${show}`) : qs);
+  location.hash = (path || "#/overview") + (show ? (qs ? `${qs}&show=${show}` : `?show=${show}`) : qs);
 }
 
 function render(force = false) {
@@ -73,7 +75,8 @@ function render(force = false) {
   const main = document.getElementById("main");
   clear(main);
   const [a, b] = r.parts;
-  if (a === "admin") current = adminView(main, nav);
+  if (a === "overview") current = homeView(main, nav);
+  else if (a === "admin") current = adminView(main, nav);
   else if (a === "report") current = reportView(main, nav);
   else if (a === "map") current = mapView(main, nav);
   else if (a === "c") current = componentView(main, b, nav);
@@ -86,6 +89,7 @@ function render(force = false) {
 }
 
 function titleFor(parts) {
+  if (parts[0] === "overview") return "Overview";
   if (parts[0] === "admin") return "Admin";
   if (parts[0] === "report") return "Morning report";
   if (parts[0] === "map") return "Map";
@@ -127,7 +131,7 @@ function buildHeader() {
   el.admin = h("a", { class: "hbtn", href: "#/admin", text: "Admin", title: "Updates and the morning report (sign-in needed to change anything)" });
   el.report = errorButton();
   bar.append(
-    h("a", { class: "brand", href: "#/vehicles" }, h("img", { src: "/static/img/asi_logo_white.png", alt: "ASI" }),
+    h("a", { class: "brand", href: "#/overview" }, h("img", { src: "/static/img/asi_logo_white.png", alt: "ASI" }),
       h("div", {}, h("div", { class: "title", text: "Network Guru" }), h("div", { class: "site", text: store.meta.site.name }))),
     el.mode, el.range, el.custom, h("span", { class: "spacer" }), el.conn, el.evBtn, el.report, el.admin, el.theme, el.help);
   applyTheme(lsGet("ng_theme") || "auto");
@@ -169,6 +173,10 @@ function cycleTheme() {
 function buildTabs() {
   const nav_ = document.getElementById("tabs");
   el.tabs = {};
+  const hc = h("span", { class: "tcounts" });
+  el.home = { a: h("a", { href: "#/overview" }, dot(1), "Overview", hc), counts: hc };
+  el.home.a.addEventListener("click", (e) => { e.preventDefault(); nav("#/overview"); });
+  nav_.append(el.home.a);
   for (const t of TABS) {
     const counts = h("span", { class: "tcounts" });
     const a = h("a", { href: `#/${t}` }, dot(1), TAB_TITLE[t], counts);
@@ -186,6 +194,14 @@ function buildTabs() {
 
 function updateTabs() {
   el.mapTab?.setAttribute("aria-current", route.parts[0] === "map" ? "page" : "false");
+  if (el.home) {                      // the Overview: the worst of the three tabs, their counts added up
+    const worst = Math.max(...TABS.map((t) => node(t).s));
+    const sum = {};
+    for (const t of TABS) for (const [k, v] of Object.entries(node(t).counts || {})) if (k !== "ok") sum[k] = (sum[k] || 0) + v;
+    el.home.a.setAttribute("aria-current", route.parts[0] === "overview" ? "page" : "false");
+    el.home.a.replaceChild(dot(worst, `Overview: ${STATUS_LABEL[["ok", "unknown", "offline", "warning", "critical"][worst]]}`), el.home.a.firstChild);
+    el.home.counts.replaceChildren(...countsLine(sum));
+  }
   for (const t of TABS) {
     const { a, counts } = el.tabs[t];
     a.setAttribute("aria-current", route.parts[0] === t || (route.parts[0] === "c" && store.comps[route.parts[1]]?.tab === t) ? "page" : "false");
@@ -291,7 +307,7 @@ async function openWhatsNew(auto) {
 function openHelp() {
   const st = (s, txt) => h("tr", {}, h("td", {}, badge(s, { small: true })), h("td", { text: txt }));
   modal("How to read this dashboard", [
-    h("p", { text: "Three tabs, each with a card per vehicle, control-room station or site location. Click a card for its detail page; click a device in a table for everything about that device." }),
+    h("p", { text: "The Overview sums up the site: a panel each for Vehicles, Control Room and Infrastructure, and everything that needs attention now. The three tabs have a card per vehicle, control-room station or site location. Click a card for its detail page; click a device in a table for everything about that device. The Map shows every location and vehicle where its GPS last put it." }),
     h("h3", { text: "Statuses" }),
     h("table", { class: "legend-table" }, h("tbody", {},
       st(0, "Every reading is inside its limits."),

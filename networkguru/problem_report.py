@@ -2,7 +2,8 @@
 
     report.txt            version, install type, mode, uptime, health, notes, settings (no secrets),
                           which secrets are set (names only), inventory summary, the admin's note,
-                          the browser details and the Mobius explorer's counts (never Mobius values)
+                          the browser details, the Mobius explorer's counts (never Mobius values) and
+                          the vehicle positions' counts (never a position)
     status.json           every node's current status, reasons and last error
     events.json           7 days of status changes, system and info events (capped)
     log.txt               the last log lines (logbuffer.py)
@@ -70,6 +71,9 @@ def build(rt, who: str, note: str, browser: dict, secrets: list[dict], logs: str
         "",
         "Mobius explorer (counts only, never values): "
         + (", ".join(f"{k} {v}" for k, v in rt.mobius.report().items()) if getattr(rt, "mobius", None) else "not running"),
+        "Vehicle positions for the map (counts only, never positions): "
+        + (", ".join(f"{k} {v}" for k, v in rt.fleet.positions.counts(rt.fleet.vehicle_of).items())
+           if getattr(rt, "fleet", None) else "not read (no Mobius map)"),
         "",
         "Inventory warnings:",
         *([f"  - {w}" for w in inv.warnings] or ["  (none)"]),
@@ -89,7 +93,7 @@ def build(rt, who: str, note: str, browser: dict, secrets: list[dict], logs: str
     ]
     files = {
         "report.txt": mask("\n".join(lines)),
-        "status.json": _j(rt.pipeline.snapshot() if rt.pipeline else {}),
+        "status.json": _j(_no_positions(rt.pipeline.snapshot()) if rt.pipeline else {}),
         "events.json": _j({
             "status_changes": rt.events.events(now - 7 * DAY, now, include_suppressed=True, limit=2000) if rt.events else [],
             "system": rt.events.system_events(now - 7 * DAY, now, limit=1000) if rt.events else [],
@@ -108,3 +112,10 @@ def build(rt, who: str, note: str, browser: dict, secrets: list[dict], logs: str
         for name, text in files.items():
             z.writestr(name, text)
     return f"networkguru-report-{inv.site.id}-{stamp:%Y%m%d-%H%M}.zip", buf.getvalue()
+
+
+def _no_positions(snapshot: dict) -> dict:
+    """The live snapshot without the vehicles' GNSS positions (lat / lon info)."""
+    nodes = {nid: ({**n, "i": {k: v for k, v in n["i"].items() if k not in ("lat", "lon")}}
+                   if isinstance(n.get("i"), dict) else n) for nid, n in (snapshot.get("nodes") or {}).items()}
+    return {**snapshot, "nodes": nodes}

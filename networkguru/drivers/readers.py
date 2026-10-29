@@ -21,8 +21,8 @@ import time
 from ..config import secret
 from ..model import Metric
 from . import cellular, snmp_profiles, victron
-from .influx import InfluxClient, InfluxError, q_ident
-from .mobius_map import as_number, mobius_map
+from .influx import InfluxClient, InfluxError, find_database, forget_database, q_ident
+from .mobius_map import as_number, map_tables, mobius_map
 from .modbus import ModbusClient, ModbusError
 from .snmp import SnmpClient, SnmpError
 
@@ -133,6 +133,7 @@ class _MobiusDb:
         self.comp, self.inv = comp, inv
         self.cfg = inv.data.mobius
         self.map = mobius_map(inv)
+        self.tables = map_tables(self.map)
         self.tag = self.cfg.asset_tag or "asset"
 
     def missing(self) -> list[str]:
@@ -143,6 +144,14 @@ class _MobiusDb:
         ex = self.cfg.model_extra or {}
         url = self.cfg.influx_url or f"http://{self.comp.host.split(':')[0]}:8086"
         return InfluxClient(url, self.cfg.database, secret(ex.get("user_ref") or ""), secret(ex.get("password_ref") or ""))
+
+    async def pick(self, c: InfluxClient) -> None:
+        """The database: the configured one, else the one holding the map's tables (find_database)."""
+        await find_database(c, self.tables)
+
+    def failed(self, c: InfluxClient | None, e: InfluxError) -> ReadError:
+        forget_database(c.url if c else self.cfg.influx_url)
+        return ReadError(str(e))
 
 
 class InfluxAgeReader(_MobiusDb):
@@ -161,14 +170,16 @@ class InfluxAgeReader(_MobiusDb):
         if not self.spec:
             return [], {}
         sel = f"SELECT {q_ident(self.spec['field'])} FROM {q_ident(self.spec['measurement'])}"
+        c = None
         try:
             async with self.client() as c:
+                await self.pick(c)
                 t = await _newest(c, sel, "1h")
                 if t is None and self.newest is None and now - self.long_asked >= AGE_LONG_EVERY_S:
                     self.long_asked = now
                     t = await _newest(c, sel, "7d")
         except InfluxError as e:
-            raise ReadError(str(e)) from None
+            raise self.failed(c, e) from None
         if t is not None:
             self.newest = max(self.newest or 0.0, t)
         if self.newest is None:
@@ -190,8 +201,10 @@ class MobiusServerReader(_MobiusDb):
     async def read(self, now: float) -> tuple[list[Metric], dict]:
         ours = self.map.get("mobius_server") or {}
         out = []
+        c = None
         try:
             async with self.client() as c:
+                await self.pick(c)
                 spec = ours.get("mobius_assets")
                 if spec:
                     tag, f = spec.get("asset_tag") or self.tag, spec["field"]
@@ -207,7 +220,7 @@ class MobiusServerReader(_MobiusDb):
                     names = {str(v[1]) for s in rows for v in s.get("values") or [] if len(v) > 1 and v[1] not in (None, "")}
                     out.append(Metric("mobius_clients", float(len(names))))
         except InfluxError as e:
-            raise ReadError(str(e)) from None
+            raise self.failed(c, e) from None
         return out, {}
 
 

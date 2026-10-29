@@ -54,13 +54,14 @@ class InfluxClient:
         self.version = r.headers.get("X-Influxdb-Version")
         return self.version or "?"
 
-    async def query(self, q: str, db: str | None = None) -> list[dict]:
-        """The series of the first statement: [{"name", "tags", "columns", "values"}]."""
+    async def query(self, q: str, db: str | None = None, timeout: float | None = None) -> list[dict]:
+        """The series of the first statement: [{"name", "tags", "columns", "values"}]. `timeout`: this query's own."""
         params = {"q": q, "epoch": "s"}
         if db or self.database:
             params["db"] = db or self.database
         try:
-            r = await self.http.get(f"{self.url}/query", params=params, auth=self.auth)
+            r = await self.http.get(f"{self.url}/query", params=params, auth=self.auth,
+                                    timeout=timeout if timeout else httpx.USE_CLIENT_DEFAULT)
         except httpx.HTTPError as e:
             raise InfluxError(f"cannot reach {self.url} ({type(e).__name__})") from None
         if r.status_code == 401:
@@ -75,6 +76,41 @@ class InfluxClient:
         if "error" in res:
             raise InfluxError(f"InfluxDB: {res['error']}")
         return res.get("series") or []
+
+
+_FOUND: dict[str, str] = {}          # InfluxDB URL -> the database find_database picked
+
+
+async def find_database(c: InfluxClient, tables=()) -> str:
+    """The database to read, also set on the client: the configured one, else the one of SHOW DATABASES
+    (without _internal) that holds the most of `tables` - a Mobius InfluxDB can have several (0.9.3).
+    Remembered per URL until forget_database()."""
+    if c.database:
+        return c.database
+    if c.url in _FOUND:
+        c.database = _FOUND[c.url]
+        return c.database
+    dbs = [v[0] for s in await c.query("SHOW DATABASES") for v in s.get("values") or [] if v and v[0] != "_internal"]
+    if not dbs:
+        raise InfluxError("no database on this InfluxDB")
+    want = set(tables)
+    best, error = dbs[0], None
+    if len(dbs) > 1 and want:
+        scores = []
+        for d in dbs:
+            series, err = await _try(c, "SHOW MEASUREMENTS", d)
+            error = error or err
+            scores.append(len(want & {v[0] for s in series for v in s.get("values") or []}))
+        if not max(scores):
+            raise InfluxError(error or f"none of the Mobius map's tables is in any database ({', '.join(dbs)})")
+        best = dbs[scores.index(max(scores))]
+    _FOUND[c.url] = c.database = best
+    return best
+
+
+def forget_database(url: str | None) -> None:
+    """After an InfluxDB error: pick the database again next time."""
+    _FOUND.pop(str(url or "").rstrip("/"), None)
 
 
 def q_ident(name: str) -> str:

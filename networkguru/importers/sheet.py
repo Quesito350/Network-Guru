@@ -16,8 +16,8 @@ from pathlib import Path
 
 from ..catalog import TYPES
 
-SITE_COLS = ["Site", "Name", "Time zone", "Lat", "Lon", "Mobius InfluxDB URL", "Mobius vehicle tag", "Netmaker URL",
-             "Subnets", "Infrastructure subnet", "Notes"]
+SITE_COLS = ["Site", "Name", "Time zone", "Lat", "Lon", "Mobius InfluxDB URL", "Mobius database", "Mobius vehicle tag",
+             "Netmaker URL", "Subnets", "Infrastructure subnet", "Notes"]
 GROUP_COLS = ["Site", "Group", "Kind", "Mobius asset", "Netmaker host", "Access", "Expected online", "Has VAI",
               "Lat", "Lon", "Notes"]
 DEVICE_COLS = ["Site", "Group", "Type", "Name", "Model", "Serial", "MAC", "Address", "IP", "API address", "Link",
@@ -34,7 +34,8 @@ README = [
     "Network Guru - site devices",
     "",
     "Sites: one row per site - the name shown in the dashboard, time zone, GPS (for the solar figures), the",
-    "  Mobius InfluxDB URL, Subnets (comma-separated, e.g. 10.200.0.0/16: a Rajant found there belongs to this",
+    "  Mobius InfluxDB URL (and the Mobius database - empty = the one holding the Mobius map tables, found by",
+    "  itself), Subnets (comma-separated, e.g. 10.200.0.0/16: a Rajant found there belongs to this",
     "  site) and the Infrastructure subnet (an unnamed Rajant there is a tower, not a vehicle).",
     "Groups: one row per vehicle, trailer, tower, building, repeater, COW, network core, Mobius server or desk.",
     "  Lat / Lon: where its pin goes on the map (decimal degrees, e.g. 40.7602 / -111.8912). The Rajant snapshot",

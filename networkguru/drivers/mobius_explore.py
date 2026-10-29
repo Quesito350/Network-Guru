@@ -23,8 +23,8 @@ import re
 import time
 
 from ..config import secret
-from .influx import ASSET_LIKE, PEOPLE_LIKE, InfluxClient, InfluxError, q_ident
-from .mobius_map import mobius_map
+from .influx import ASSET_LIKE, PEOPLE_LIKE, InfluxClient, InfluxError, find_database, forget_database, q_ident
+from .mobius_map import map_tables, mobius_map
 
 log = logging.getLogger("networkguru.drivers")
 
@@ -54,7 +54,7 @@ class MobiusExplorer:
         self.user_ref, self.password_ref = ex.get("user_ref") or "", ex.get("password_ref") or ""
         self.timeout = timeout
         self.names = self._names(inv)
-        self.mapped = {s["measurement"] for values in mobius_map(inv).values() for s in values.values()}
+        self.mapped = map_tables(mobius_map(inv))
         self.schema: dict[tuple[str, str], dict] = {}          # (db, measurement) -> {"fields", "tags", "who"}
         self.schema_at = -1e18
         self.groups: dict[str, dict] = {}                      # gid -> {"t": newest, "rows": [...]}
@@ -93,6 +93,7 @@ class MobiusExplorer:
                 await self.once()
             except InfluxError as e:
                 self.error, wait = str(e), BACKOFF_S
+                forget_database(self.url)
             except Exception as e:  # noqa: BLE001 - a surprise in the data must not stop the explorer
                 log.exception("Mobius explorer failed")
                 self.error, wait = f"explorer error ({type(e).__name__})", BACKOFF_S
@@ -147,10 +148,8 @@ class MobiusExplorer:
 
     async def _layout(self, c: InfluxClient) -> dict[tuple[str, str], dict]:
         await c.ping()                                              # its version: 3.x gets time limits
-        dbs = [self.database] if self.database else [v[0] for s in await c.query("SHOW DATABASES")
-                                                       for v in s.get("values") or [] if v and v[0] != "_internal"][:3]
         out: dict[tuple[str, str], dict] = {}
-        for db in dbs:
+        for db in [await find_database(c, self.mapped)]:            # the same database the readers use
             ms = [v[0] for s in await c.query("SHOW MEASUREMENTS", db) for v in s.get("values") or []]
             ms = [m for m in ms if m in self.mapped] + [m for m in ms if m not in self.mapped]     # the mapped first
             for m in ms[:MAX_MEASUREMENTS]:

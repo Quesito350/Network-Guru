@@ -36,6 +36,40 @@ export function vehicleHops(gid) {
   return hops;
 }
 
+// "Needs attention now" (the tab pages and the Overview): devices at Warning / Critical that are not hidden
+// behind a failed one, else the group itself - worst first, then the oldest.
+export function attentionRows(groups, hiddenIds = new Set()) {
+  const rows = [];
+  for (const g of groups) {
+    if (hiddenIds.has(g.id)) continue;
+    const gn = node(g.id);
+    for (const c of g.components) {
+      const n = node(c.id);
+      if ((n.s === 3 || n.s === 4) && !n.sup) rows.push({ g, c, n });
+    }
+    if ((gn.s === 3 || gn.s === 4) && !rows.some((r) => r.g === g)) rows.push({ g, c: null, n: gn });
+  }
+  return rows.sort((a, b) => b.n.s - a.n.s || (a.n.since || 0) - (b.n.since || 0));
+}
+
+export function fillAttention(ul, rows, nav, max = 30) {
+  clear(ul);
+  if (!rows.length) {
+    ul.append(h("li", { class: "none", text: "Nothing needs attention." }));
+    return;
+  }
+  for (const r of rows.slice(0, max)) {
+    const href = r.c ? `#/c/${r.c.id}` : `#/${r.g.tab}/${r.g.id}`;
+    const a = h("a", { href }, badge(r.n.s, { small: true }),
+      h("span", { text: r.c ? `${r.g.name} · ${r.c.name}` : r.g.name }),
+      h("span", { class: "why", text: (r.n.r || []).join(" · ") }),
+      h("span", { class: "muted when", text: r.n.since ? `since ${fmtWhen(r.n.since)}` : "" }));
+    a.addEventListener("click", (e) => { e.preventDefault(); nav(href); });
+    ul.append(h("li", {}, a));
+  }
+  if (rows.length > max) ul.append(h("li", { class: "none", text: `+${rows.length - max} more` }));
+}
+
 export function readings(compId, metrics) {
   const n = node(compId);
   return metrics.map((m) => {

@@ -24,7 +24,7 @@ netmaker:                                   # WireGuard tunnels on the Netmaker 
 mobius:
   influx_url: http://10.200.1.10:8086      # Mobius InfluxDB (Sites sheet: Mobius InfluxDB URL)
   version: auto
-  database: null                            # null = every database it has
+  database: null                            # null = the one holding the map's tables (Sites sheet: Mobius database)
   asset_tag: null                           # the tag naming the vehicle (Sites sheet: Mobius vehicle tag)
   # map: where each value is - written from devices.xlsx's "Mobius map" sheet by build-inventory, one
   # table per value (probe-influx lists them). The names below are made up; a site's real ones stay in

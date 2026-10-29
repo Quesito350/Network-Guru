@@ -2,7 +2,7 @@
 
 A browser dashboard for one autonomous site. It shows whether the comms chain **Mobius Server ↔ Mobius Clients ↔ vehicles** is healthy. It also covers the infrastructure in between: Rajant, Celona, Starlink, Tachyon 60 GHz, Ubiquiti, the trailers' switches, and their solar and battery.
 
-It has a **Live** view and up to **30 days of History**. The pages are organised into three tabs: Vehicles, Control Room and Infrastructure. Each tab shows an overview card for every vehicle, desk and location, and each card opens a detail page.
+It has a **Live** view and up to **30 days of History**. It opens on the **Overview**: a panel each for Vehicles, Control Room and Infrastructure, with a few headline numbers and a chip per vehicle, desk and location, and one list of everything that needs attention. The three tabs show a card for every vehicle, desk and location, and each card opens a detail page. The **Map** shows the locations and every vehicle where its GPS last put it (parked ones faded at their last position; vehicles Mobius knows but the inventory doesn't in grey).
 
 > **Version 0.6.0** adds:
 > - a **Map** of the site: a pin per location in its live status colour, the vehicles and the 60 GHz links (satellite images when online, a plain grid offline)
@@ -104,7 +104,7 @@ python run.py build-inventory ..\sites\devices.xlsx --site mendon --out ..\sites
   - **BC|Commander snapshot:** reads serial, name, model, firmware, IP, MAC and DHCP/static for every BreadCrumb. It matches the IPAM rows by IP and adds vehicles and Tremonton. Mesh keys and passphrases in the snapshot are never read.
   - **devices.csv:** the V&V radio-monitor format (`name, site, type, ip, serial, model, firmware`), plus optional `group, kind, mobius_asset`.
 - **`devices.xlsx`** has a **Sites** sheet, a **Groups** sheet (vehicles, trailers, COW, towers, stations) and a **Devices** sheet, with drop-down lists. Edit it freely: re-imports keep your edits and only refresh IPs, firmware, serials and MACs.
-  - **Sites:** one row per site, with the name shown in the dashboard, the time zone, GPS (for the solar figures), the Mobius InfluxDB URL and *Mobius vehicle tag* (the tag naming the vehicle, e.g. `Vehicle`), the site's *Subnets* (where the snapshot import puts a Rajant on that site) and its *Infrastructure subnet* (where an unnamed Rajant is a tower). `build-inventory` reads it. Without a row, it uses defaults and says so.
+  - **Sites:** one row per site, with the name shown in the dashboard, the time zone, GPS (for the solar figures), the Mobius InfluxDB URL, *Mobius database* (optional - empty means the one holding the Mobius map's tables) and *Mobius vehicle tag* (the tag naming the vehicle, e.g. `Vehicle`), the site's *Subnets* (where the snapshot import puts a Rajant on that site) and its *Infrastructure subnet* (where an unnamed Rajant is a tower). `build-inventory` reads it. Without a row, it uses defaults and says so.
   - **Vehicles:** fill in their *Mobius asset* (the vehicle's name in Mobius) to get VCU and GNSS checks (set *Has VAI* for VAI).
   - **Mobius map:** where each Mobius value is - one row per value: Site (empty = every site), Type, Value (the dashboard's name, e.g. `vcu_comms_latency_ms`), Mobius table, Field (empty = `Value`), Text values (e.g. `Fixed=4, Float=5, (empty)=0, *=1`). The real table names stay in your devices.xlsx, never in this repository.
   - **Monitor = no:** marks spare or turned-off devices.

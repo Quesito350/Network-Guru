@@ -145,6 +145,8 @@ def build_inventory(sheet: Sheet, site: str, name: str | None = None, timezone: 
     lon = lon if lon is not None else _num(meta.get("Lon"), DEFAULT_LON, "Lon", report)
     influx = (meta.get("Mobius InfluxDB URL") or "").strip()
     mobius = {"influx_url": influx} if influx else {}
+    if influx and (meta.get("Mobius database") or "").strip():
+        mobius["database"] = meta["Mobius database"].strip()
     if influx and (meta.get("Mobius vehicle tag") or "").strip():
         mobius["asset_tag"] = meta["Mobius vehicle tag"].strip()
     mobius_map = _mobius_map(sheet, site, report) if influx else {}

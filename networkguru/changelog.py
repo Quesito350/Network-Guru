@@ -7,6 +7,19 @@ networkguru.__version__ - release.py refuses to package otherwise).
 """
 
 CHANGES = [
+    ("0.9.3", "2026-10-28", [
+        "New Overview tab, now the start page: a panel each for Vehicles, Control Room and Infrastructure - their "
+        "status, a few headline numbers (vehicles in service, worst comms latency, Mobius assets and clients, "
+        "InfluxDB data age, lowest battery, 60 GHz links down) and a chip per vehicle, station and location - and "
+        "one 'Needs attention now' list for the whole site. Click a panel's title for its tab, a chip for its page.",
+        "The Map shows every vehicle where its GPS last put it, read from Mobius. A parked vehicle stays at its last "
+        "position, faded (hover for when); the map keeps it across a restart. 'Hide them' takes parked ones off.",
+        "Vehicles Mobius knows but the inventory does not get a grey pin with their Mobius name, and a list on the "
+        "map's side: put the name in Groups → Mobius asset of devices.xlsx and they get their own cards.",
+        "Fixed: the Mobius InfluxDB, the Mobius Server's counts and the VCU / GNSS cards said 'Not read' when the "
+        "inventory did not name the Mobius database. The dashboard now finds it by itself (the one holding the "
+        "Mobius map's tables); the Sites sheet has an optional 'Mobius database' column to set it.",
+    ]),
     ("0.9.2", "2026-10-27", [
         "The vehicles' VCU, GNSS and VAI cards show Mobius's own values: comms latency and drop, the Mobius link, "
         "temperatures, supply voltage and CPU; GNSS fix, satellites, correction age and HDOP, and the map position. "

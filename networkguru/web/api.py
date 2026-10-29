@@ -65,6 +65,16 @@ async def map_settings(request: Request):
     return {"background": maptile_choice(choice), "tiles": tiles_for(choice)}
 
 
+@router.get("/map/vehicles")
+async def map_vehicles(request: Request):
+    """Every Mobius vehicle's last position (0.9.3): its inventory vehicle (group) or none, and whether it is
+    live. Live mode with a Mobius map only - the simulator's vehicles come with their GNSS info."""
+    fleet = rt(request).fleet
+    if fleet is None:
+        return {"enabled": False, "vehicles": []}
+    return {"enabled": True, "vehicles": fleet.positions.public(fleet.vehicle_of)}
+
+
 @router.get("/meta")
 async def meta(request: Request):
     r = rt(request)
