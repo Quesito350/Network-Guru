@@ -232,7 +232,9 @@ function buildFooter() {
   f.append(
     h("button", { class: "linkish", type: "button", text: `Version ${store.meta.version} · What's new`, onclick: () => openWhatsNew(false) }),
     h("span", { text: `Times are ${tz()} (site time)` }),
-    h("span", { text: store.meta.mode === "sim" ? "Data: simulator" : "Data: live devices" }),
+    h("span", {}, store.meta.mode === "sim" ? "Data: simulator" : "Data: live devices",
+      (store.meta.info || []).length ? [" · ", h("button", { class: "linkish", type: "button", text: "What's checked",
+        onclick: openChecked })] : null),
     h("span", { text: `History store: ${store.meta.tsdb === "memory" ? "in memory" : "VictoriaMetrics"}` }),
     el.updFoot = h("span", { text: "Updates: …" }));
 }
@@ -304,6 +306,14 @@ async function openWhatsNew(auto) {
   lsSet("ng_last_version", store.meta.version);
 }
 
+// information about this install (0.9.4): what is checked and read - not a to-do, so not a banner
+function openChecked() {
+  modal("What's checked", [
+    h("ul", {}, (store.meta.info || []).map((n) => h("li", { text: n }))),
+    h("p", { class: "muted", text: "Things that need doing are the yellow notes at the top of the page." }),
+  ]);
+}
+
 function openHelp() {
   const st = (s, txt) => h("tr", {}, h("td", {}, badge(s, { small: true })), h("td", { text: txt }));
   modal("How to read this dashboard", [
@@ -322,6 +332,8 @@ function openHelp() {
     h("ul", {}, h("li", { text: "VCU, GNSS and VAI: from the Mobius Server's own database (the same data Mobius uses)." }),
       h("li", { text: "Radios, routers, Starlink, Tachyon, Ubiquiti, Celona: read from each device by the dashboard server." }),
       h("li", { text: "Battery and solar: from the Victron Cerbo GX on each trailer." })),
+    h("h3", { text: "Notes" }),
+    h("p", { text: "A yellow note at the top is something to do (for example a device login to add). What the dashboard checks and reads is under \"What's checked\" at the bottom of the page." }),
     h("p", { class: "muted", text: `Times are shown in the site's time zone (${tz()}). The limits are in rules_default.yaml on the server and are starting values for ops to review.` }),
   ]);
 }

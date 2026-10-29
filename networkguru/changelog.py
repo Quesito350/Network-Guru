@@ -7,6 +7,13 @@ networkguru.__version__ - release.py refuses to package otherwise).
 """
 
 CHANGES = [
+    ("0.9.4", "2026-10-28", [
+        "The yellow notes at the top are only things to do now (for example device logins to add). What the "
+        "dashboard checks and reads - and that history is kept in memory - moved to 'What's checked' at the bottom "
+        "of the page.",
+        "A device added from the network scan that the site inventory now has itself is cleared by itself, with one "
+        "line in Events - no more 'the copy added from the network scan is left out' note at every start.",
+    ]),
     ("0.9.3", "2026-10-28", [
         "New Overview tab, now the start page: a panel each for Vehicles, Control Room and Infrastructure - their "
         "status, a few headline numbers (vehicles in service, worst comms latency, Mobius assets and clients, "

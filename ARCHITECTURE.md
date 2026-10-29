@@ -309,7 +309,7 @@ app               result (matched by request_id, each consumed once) -> system e
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/meta` | version, site, mode, notes, backfill %, catalog, thresholds, enum rules, `started`, `hide_quiet` {min, tabs}, `mobius_explore` |
+| `GET /api/meta` | version, site, mode, notes (to-dos: the banners) and info (`model.Info` notes: the footer's "What's checked", 0.9.4), backfill %, catalog, thresholds, enum rules, `started`, `hide_quiet` {min, tabs}, `mobius_explore` |
 | `GET /api/admin/discovery` | the scan's state and review list (admin) |
 | `POST /api/admin/discovery/scan`, `/add`, `/ignore`; `GET …/export.csv` | Scan now (409 while running or outside live mode), Add a found device, Ignore / show again, rows for `import-devices` (admin) |
 | `GET /api/mobius/summary` | per group the newest Mobius data time and map positions (the cards, the gone-quiet rule) |
@@ -507,6 +507,7 @@ Ranges are capped at 32 days.
 | 0.9.0 ✓ | the discovery scan: find Mobius servers and devices, follow moved ones, Add from a review list (details in *The discovery scan*) | Mendon LAN |
 | 0.9.2 ✓ | the Mobius mapping from Mendon's InfluxDB (one table per value, the Mobius map sheet), InfluxDB 3 (details in *Device readers*) | Mendon LAN |
 | 0.9.3 ✓ | the Mobius database found by itself; every Mobius vehicle on the map (parked ones at their last position, unmatched ones grey); the Overview tab | Mendon LAN |
+| 0.9.4 ✓ | banners only for to-dos ("What's checked" for the rest); scan-added copies the inventory has cleared into Events | test PC |
 | 0.9.x | unit checks of the Tachyon and Sierra values against the devices | Mendon LAN |
 | 0.10.0 | readers 3: MikroTik REST (GET only), Celona Orchestrator, airMAX SNMP, UniFi API, Westermo SNMP, windows_exporter; address lookups for DHCP (UniFi clients, MikroTik leases/ARP, Rajant ARP over SNMP, MNDP, DNS) | each device type |
 | 1.0.0 | thresholds reviewed with ops, optional view password, HTTPS (admin sign-in is plain HTTP on the LAN in 0.5.0), second-site offline install | site |
@@ -549,6 +550,7 @@ Ranges are capped at 32 days.
 
 ## Version history
 
+- **0.9.4** (2026-10-28): dashboard notes are to-dos (banners) or `model.Info` (a `str` subclass: the `live_pollers` summary, "No VictoriaMetrics configured") shown under the footer's "What's checked" (`/api/meta` `notes` / `info`; the problem report marks "(info)"); `found.merge_added` returns the kept entries and `load_site_inventory` removes added devices the inventory has itself from `added.json` (like `apply_overlay`), reported once as `discovery` system events instead of a note at every start; `Discovery.add` passes its own `StateFile`.
 - **0.9.3** (2026-10-28): the Mobius database found by itself (`influx.find_database`, + Sites "Mobius database"; 0.9.2 read nothing when the inventory named none); `positions.py` + `/api/map/vehicles`: every Mobius vehicle's last position and link, kept in `state/positions.json`, the position table's first ask 7 days back; the map: parked vehicles faded at their last position (Hide / Show), grey pins for Mobius names not in the inventory; the Overview tab (`views/home.js`, the start page; "Needs attention now" shared in `common.js`); problem reports: position counts only, `status.json` without GNSS lat / lon; the fake InfluxDB wants a database, as the real one.
 - **0.9.2** (2026-10-27): the Mobius mapping - per-value map from devices.xlsx's Mobius map sheet (+ Sites "Mobius vehicle tag"), `MobiusPoller` keeps last values (24 h first pass, then 2 min) and knows who is not communicating, `MobiusServerReader`, a time limit on every InfluxDB query (InfluxDB 3: `probe-influx`, the age reader, the explorer's tag values); the explorer reads the mapped tables first and never takes a user-name tag; `vcu_supply_v` 11.5 / 10.5 V; Scan now saves the typed networks first.
 - **0.9.1** (2026-10-27): Admin → Found on the network → "Also scan these networks" (`discovery_ranges` setting: private IPv4 only, at most 32 networks and 65,536 addresses; used by Scan now and the nightly scan).

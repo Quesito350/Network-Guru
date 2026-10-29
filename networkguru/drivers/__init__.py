@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections import Counter
 
 from ..catalog import TYPES, type_spec
+from ..model import Info
 
 NOT_MAPPED = ("Not mapped yet - add its values to the Mobius map sheet of devices.xlsx (probe-influx lists "
               "the Mobius tables), then build the inventory again")
@@ -89,11 +90,12 @@ def live_pollers(inv, can_ping: bool, only: set[str] | None = None) -> tuple[lis
             not_set_up.setdefault("Netmaker", set()).add(netmaker.token_ref)
         else:
             pollers.append(NetmakerPoller(inv, tunnels, netmaker))
-    notes = ["Live mode: ping and port checks for every device with an address. Device readers: "
-             + (", ".join(f"{k} ×{v}" for k, v in sorted(reading.items())) or "none set up yet")
-             + "; Mobius: " + (f"{len(mobius)} components read" if mobius else "not mapped yet (Mobius map sheet)" if url
-                               else "no InfluxDB set")
-             + (f"; Netmaker: {len(tunnels)} WireGuard tunnels" if tunnels and not netmaker.missing() else "") + "."]
+    # the summary is information (the footer's "What's checked"); the notes after it are to-dos (banners)
+    notes = [Info("Live mode: ping and port checks for every device with an address. Device readers: "
+                  + (", ".join(f"{k} ×{v}" for k, v in sorted(reading.items())) or "none set up yet")
+                  + "; Mobius: " + (f"{len(mobius)} components read" if mobius else "not mapped yet (Mobius map sheet)"
+                                    if url else "no InfluxDB set")
+                  + (f"; Netmaker: {len(tunnels)} WireGuard tunnels" if tunnels and not netmaker.missing() else "") + ".")]
     if not_set_up:
         notes.append("Device readers not set up (add these to secrets.env): "
                      + "; ".join(f"{k} ({', '.join(sorted(v))})" for k, v in sorted(not_set_up.items())) + ".")

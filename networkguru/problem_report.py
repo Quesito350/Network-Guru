@@ -26,6 +26,7 @@ from zoneinfo import ZoneInfo
 
 from . import TOOL_NAME, __version__
 from .config import mask
+from .model import Info
 
 DAY = 86400.0
 MAX_TEXT = 200_000           # per free-text field from the browser
@@ -67,7 +68,7 @@ def build(rt, who: str, note: str, browser: dict, secrets: list[dict], logs: str
         f"Health ok: {h.get('ok')}   dead tasks: {', '.join(h.get('dead_tasks') or []) or 'none'}",
         "",
         "Notes on the dashboard:",
-        *([f"  - {n}" for n in rt.notes] or ["  (none)"]),
+        *([f"  - {n}{' (info)' if isinstance(n, Info) else ''}" for n in rt.notes] or ["  (none)"]),
         "",
         "Mobius explorer (counts only, never values): "
         + (", ".join(f"{k} {v}" for k, v in rt.mobius.report().items()) if getattr(rt, "mobius", None) else "not running"),

@@ -6,7 +6,8 @@ Files in <data>/state/ (the site's inventory.yaml stays read-only):
     addresses.json   devices followed to a new address: {comp id: {address, was, ts, how}} - applied at
                      start; dropped when the inventory itself has the new address (or changed otherwise)
     added.json       devices an admin added from the review list, in inventory format - merged into the
-                     inventory at start; one the sheet now also has (serial / MAC / address) is left out
+                     inventory at start; one the sheet now also has (serial / MAC / address) is removed
+                     from it, with a system event (0.9.4; it was a note at every start before)
 """
 
 from __future__ import annotations
@@ -42,10 +43,12 @@ def _state(data_dir, name: str, defaults: dict | None = None) -> StateFile:
 
 
 # -- the inventory as the server uses it -------------------------------------------------------
-def merge_added(raw: dict, entries: list[dict]) -> tuple[dict, list[str]]:
-    """The site inventory + the devices added from the scan (a copy; the file is never changed)."""
+def merge_added(raw: dict, entries: list[dict]) -> tuple[dict, list[dict], list[str]]:
+    """(the site inventory + the devices added from the scan - a copy, the file is never changed; the entries
+    to keep; what was removed: one line per added device the inventory has itself now)."""
     raw = copy.deepcopy(raw)
-    notes: list[str] = []
+    kept: list[dict] = []
+    removed: list[str] = []
     ids, serials, macs, places = set(), set(), set(), set()
     for key in TAB_KEYS.values():
         raw[key] = raw.get(key) or []
@@ -62,13 +65,15 @@ def merge_added(raw: dict, entries: list[dict]) -> tuple[dict, list[str]]:
     for e in entries:
         c = dict(e.get("component") or {})
         if not c.get("id") or not c.get("type"):
+            kept.append(e)
             continue
         dup = (c.get("serial") and str(c["serial"]).strip().lower() in serials) or \
               (norm_mac(c.get("mac")) and norm_mac(c.get("mac")) in macs) or (c.get("host"), c.get("type")) in places
         if dup:
-            notes.append(f"{c.get('name') or c['id']} ({c.get('host')}) is in the site inventory now - the copy added "
-                         "from the network scan is left out")
+            removed.append(f"{c.get('name') or c['id']} ({c.get('host')}): the site inventory has it now - the copy "
+                           "added from the network scan is removed")
             continue
+        kept.append(e)
         if c["id"] in ids:
             continue
         groups = raw[TAB_KEYS.get(e.get("tab"), "infrastructure")]
@@ -82,7 +87,7 @@ def merge_added(raw: dict, entries: list[dict]) -> tuple[dict, list[str]]:
             ids.add(gid)
         (g["components"] if "components" in g else g.setdefault("devices", [])).append(c)
         ids.add(c["id"])
-    return raw, notes
+    return raw, kept, removed
 
 
 def apply_overlay(inv, overlay: dict) -> tuple[dict, list[str]]:
@@ -103,17 +108,22 @@ def apply_overlay(inv, overlay: dict) -> tuple[dict, list[str]]:
     return keep, notes
 
 
-def load_site_inventory(path, data_dir):
-    """(inventory, the addresses the files gave each device, notes) - live mode's inventory."""
-    added = _state(data_dir, "added.json", {"entries": []})
-    raw, notes = merge_added(load_raw(path), added.get("entries") or [])
+def load_site_inventory(path, data_dir, added: StateFile | None = None):
+    """(inventory, the addresses the files gave each device, changes) - live mode's inventory. Added devices
+    the inventory has itself now and followed addresses it overrides are dropped from their files; `changes`
+    says which, for the Events list. `added`: the Discovery's own added.json (so it never writes them back)."""
+    added = added or _state(data_dir, "added.json", {"entries": []})
+    entries = added.get("entries") or []
+    raw, kept, changes = merge_added(load_raw(path), entries)
+    if len(kept) != len(entries):
+        added.update(entries=kept)
     inv = parse_inventory(raw, str(path))
     base = {cid: c.host for cid, c in inv.comps.items()}
     ov = _state(data_dir, "addresses.json")
     keep, more = apply_overlay(inv, dict(ov.data))
     if keep != ov.data:
         ov.replace(keep)
-    return inv, base, notes + more
+    return inv, base, changes + more
 
 
 # -- the service -------------------------------------------------------------------------------
@@ -281,10 +291,14 @@ class Discovery:
         entries = list(self.added.get("entries") or [])
         entries.append({"key": key, "tab": tab, "group": group, "component": comp, "ts": time.time(), "by": who})
         self.added.update(entries=entries)
-        new_inv, base_hosts, notes = load_site_inventory(self.rt.settings.inventory, self.rt.settings.data_dir)
+        new_inv, base_hosts, changes = load_site_inventory(self.rt.settings.inventory, self.rt.settings.data_dir,
+                                                           added=self.added)
         if cid not in new_inv.comps:
-            self.added.update(entries=entries[:-1])
-            raise ValueError("; ".join(notes) or "it could not be added to the inventory")
+            self.added.update(entries=[e for e in self.added.get("entries") or []
+                                       if (e.get("component") or {}).get("id") != cid])
+            raise ValueError("; ".join(changes) or "it could not be added to the inventory")
+        for text in changes:
+            self.rt.events.add_system_event(time.time(), "discovery", text)
         self.rt.swap_inventory(new_inv, base_hosts)
         it["outcome"], it["comp"] = "added", cid
         items[key] = it

@@ -182,10 +182,11 @@ def test_added_devices_merge_and_overlay_rules():
                {"tab": "infrastructure", "group": {"id": "trailer-12", "name": "Trailer 12", "kind": "trailer"},
                 "component": {"id": "trailer-12-bc", "type": "rajant", "name": "BC", "host": "10.200.3.60",
                               "serial": "FE1-2255X-100099"}}]                     # the sheet has this serial already
-    merged, notes = merge_added(raw, entries)
+    merged, kept, removed = merge_added(raw, entries)
     inv = parse_inventory(merged)
     assert "srv-influx" in inv.comps and "trailer-12-bc" not in inv.comps and "trailer-12" not in inv.groups
-    assert "is in the site inventory now" in notes[0]
+    assert kept == entries[:1] and removed == ["BC (10.200.3.60): the site inventory has it now - the copy added "
+                                               "from the network scan is removed"]
     assert "srv-influx" not in parse_inventory(raw).comps                            # the file's dict is untouched
     keep, notes = apply_overlay(inv, {"t9-bc": {"address": "10.200.3.44", "was": "10.200.3.30"},
                                       "t9-60g": {"address": "10.200.3.31", "was": "10.200.3.20"},
@@ -252,16 +253,28 @@ def test_runtime_follows_a_moved_device_adds_a_new_one_and_keeps_both(tmp_path):
 
     async def again(s):
         rt = Runtime(s)
-        return rt.inv.comps["t9-bc"].host, "trailer-12-tachyon-9" in rt.inv.comps, rt.notes
-    host, has_added, _notes = asyncio.run(again(settings))
-    assert host == "127.0.0.44" and has_added                                     # both kept across a restart
+        await rt.start()
+        try:
+            found = [e["reason"] for e in rt.events.system_events(0, time.time() + 1, kinds=("discovery",))
+                     if "the site inventory has it now" in e["reason"]]
+            return rt.inv.comps["t9-bc"].host, "trailer-12-tachyon-9" in rt.inv.comps, rt.notes, found
+        finally:
+            await rt.stop()
+    host, has_added, _notes, found = asyncio.run(again(settings))
+    assert host == "127.0.0.44" and has_added and not found                       # both kept across a restart
     caught_up = json.loads(json.dumps(LIVE_INV))
     caught_up["infrastructure"][0]["devices"][0]["host"] = "127.0.0.44"
     caught_up["infrastructure"].append({"id": "t12", "name": "T12", "devices": [
         {"id": "t12-60g", "type": "tachyon", "host": "127.0.0.60", "serial": "TN30X-9"}]})
-    host, has_added, notes = asyncio.run(again(_live(tmp_path, caught_up)))
-    assert host == "127.0.0.44" and not has_added and any("is in the site inventory now" in n for n in notes)
+    caught = _live(tmp_path, caught_up)
+    host, has_added, notes, found = asyncio.run(again(caught))
+    assert host == "127.0.0.44" and not has_added
+    # 0.9.4: no note at every start - the copy is removed from added.json, once, with an event
+    assert not any("site inventory" in n for n in notes) and len(found) == 1 and "Tachyon 9 (127.0.0.60)" in found[0]
+    assert json.loads((data / "added.json").read_text())["entries"] == []
     assert json.loads((data / "addresses.json").read_text()) == {}                 # the sheet caught up
+    _host, _has, _notes, found = asyncio.run(again(caught))
+    assert found == []                                  # the next start: nothing new (this test's events are in memory)
 
 
 def _write(p, text):

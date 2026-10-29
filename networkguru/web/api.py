@@ -11,7 +11,7 @@ from .. import TOOL_NAME, __version__
 from ..catalog import catalog_json
 from ..changelog import as_json as changelog_json
 from ..maptiles import choice as maptile_choice, tiles_for
-from ..model import STATUS_NAMES
+from ..model import STATUS_NAMES, Info
 from ..report import as_html, as_text, report_from_runtime
 
 router = APIRouter(prefix="/api")
@@ -80,7 +80,10 @@ async def meta(request: Request):
     r = rt(request)
     return {"tool": TOOL_NAME, "version": __version__, "mode": r.mode,
             "site": {"id": r.inv.site.id, "name": r.inv.site.name, "timezone": r.inv.site.timezone},
-            "tsdb": r.tsdb.kind, "notes": r.notes, "server_time": time.time(),
+            "tsdb": r.tsdb.kind, "server_time": time.time(),
+            # to-dos are banners; information goes under the footer's "What's checked" (0.9.4)
+            "notes": [n for n in r.notes if not isinstance(n, Info)],
+            "info": [str(n) for n in r.notes if isinstance(n, Info)],
             "backfill": {"pct": round(r.progress.pct, 1), "done": r.progress.done},
             "history_days": r.settings.history_days,
             "statuses": STATUS_NAMES, "catalog": catalog_json(), "thresholds": r.rules.thresholds_json(),

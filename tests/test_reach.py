@@ -140,7 +140,10 @@ def test_live_runtime_note_and_unchecked(tmp_path):
     app = create_app(Settings(inventory=EXAMPLE, mode="live", history_days=1, vm_url=None, data_dir=tmp_path))
     with TestClient(app) as c:
         meta = c.get("/api/meta").json()
-        assert any(n.startswith("Live mode: ping and port checks for every device") for n in meta["notes"])
+        # 0.9.4: what is checked is information (the footer's "What's checked"), the missing logins a banner
+        assert any(n.startswith("Live mode: ping and port checks for every device") for n in meta["info"])
+        assert not any(n.startswith("Live mode") for n in meta["notes"])
+        assert "No VictoriaMetrics configured - history is kept in memory only." in meta["info"]
         assert any("RAJANT_SNMP_USER" in n for n in meta["notes"])             # readers not set up: named once
         live = c.get("/api/live").json()["nodes"]
         assert live["ac2845-vcu"]["r"] == [NOT_MAPPED] and len(app.state.rt.scheduler.pollers) > 20

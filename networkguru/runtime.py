@@ -18,6 +18,7 @@ from .drivers.reach import icmp_available
 from .events import EventStore
 from .history import History
 from .inventory import load_inventory
+from .model import Info
 from .pipeline import Pipeline
 from .positions import VehiclePositions
 from .rules import RuleSet, load_rules
@@ -38,10 +39,10 @@ class Runtime:
     def __init__(self, settings):
         self.settings = settings
         self.mode = settings.mode
-        inv_notes: list[str] = []
+        self.inv_changes: list[str] = []       # for the Events list once it is open (start)
         if self.mode == "live":            # + devices added from the discovery scan, + followed addresses
             from .found import load_site_inventory
-            self.inv, self.base_hosts, inv_notes = load_site_inventory(settings.inventory, settings.data_dir)
+            self.inv, self.base_hosts, self.inv_changes = load_site_inventory(settings.inventory, settings.data_dir)
         else:
             self.inv = load_inventory(settings.inventory)
             self.base_hosts = {cid: c.host for cid, c in self.inv.comps.items()}
@@ -54,7 +55,7 @@ class Runtime:
         self.scheduler: Scheduler | None = None
         self.progress = Progress()
         logbuffer.install()                  # the last log lines, for the problem report
-        self.notes: list[str] = list(inv_notes)
+        self.notes: list[str] = []
         self.tasks: list[asyncio.Task] = []
         self.started = time.time()
         self.settings_state = open_settings(settings.data_dir, settings.public_url)
@@ -85,6 +86,8 @@ class Runtime:
             if s.fresh and self.mode == "sim":
                 await self._wipe_sim_history(Path(db_path))
         self.events = EventStore(db_path)
+        for text in self.inv_changes:        # an added device the inventory has now, a followed address it overrides
+            self.events.add_system_event(time.time(), "discovery", text)
         self.pipeline = Pipeline(self.inv, self.rules, self.tsdb, self.events)
         self.history = History(self.inv, self.rules, self.tsdb, self.events)
         tz = self.pipeline.tz
@@ -166,7 +169,7 @@ class Runtime:
             self.notes.append(f"VictoriaMetrics at {url} is not answering - history is kept in memory only "
                               "and is lost on restart.")
         elif self.mode != "sim":
-            self.notes.append("No VictoriaMetrics configured - history is kept in memory only.")
+            self.notes.append(Info("No VictoriaMetrics configured - history is kept in memory only."))
         return MemoryTSDB()
 
     async def _await_vm(self, vm: VictoriaTSDB, note: str) -> None:

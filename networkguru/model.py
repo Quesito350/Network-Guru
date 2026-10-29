@@ -23,6 +23,11 @@ class Status(IntEnum):
 STATUS_NAMES = {s.value: s.name.lower() for s in Status}
 
 
+class Info(str):
+    """A dashboard note that is information, not a to-do (0.9.4): shown under the footer's "What's checked",
+    not as a banner. Still a plain string everywhere else."""
+
+
 @dataclass
 class Metric:
     """One numeric reading. `labels` only for a bounded sub-entity (interface, peer, MPPT)."""

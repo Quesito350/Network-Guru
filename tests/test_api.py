@@ -27,6 +27,7 @@ def test_meta_inventory_live(client):
     m = client.get("/api/meta").json()
     assert m["mode"] == "sim" and m["tsdb"] == "memory" and m["backfill"]["done"]
     assert "ping_rtt_ms" in m["thresholds"] and "gnss_mode" in m["enum_rules"]
+    assert m["notes"][0].startswith("Simulated data") and m["info"] == []        # the simulator stays a banner (0.9.4)
     inv = client.get("/api/inventory").json()
     assert [t["id"] for t in inv["tabs"]] == ["vehicles", "control", "infrastructure"]
     live = client.get("/api/live").json()
