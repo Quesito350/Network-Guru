@@ -9,6 +9,7 @@ import { badge, dot, updateBadge, updateDot } from "../status.js";
 import { node, rangeLabel, store, window_ } from "../store.js";
 import { miniPath } from "../widgets/path.js";
 import { battery, sparkline, statusStrip } from "../widgets/small.js";
+import { clientsPanel } from "./clients.js";
 import { attentionRows, fillAttention, TAB_TITLE, vehicleHops } from "./common.js";
 
 const KIND_LABEL = { trailer: "Solar trailer", tower: "Tower", building: "Building", repeater: "Repeater", core: "Network core",
@@ -179,6 +180,8 @@ export function overviewView(root, tabId, nav) {
     h("div", { class: "page-head" }, h("h1", { text: TAB_TITLE[tabId] }), sub),
     tilesCap, tiles, filterBar, quietBar, issuesBox, empty,
     h("div", { class: "grid" }, cards.map((x) => x.card.el)));
+  const clients = tabId === "control" ? clientsPanel(nav) : null;      // every Mobius client PC (0.9.6)
+  if (clients) root.append(clients.el);
 
   // a tile is a filter: the URL keeps it (#/vehicles?show=critical), so a refresh or a link does too
   function setShow(st) {
@@ -303,10 +306,11 @@ export function overviewView(root, tabId, nav) {
 
   update();
   loadHistory();
+  clients?.start();
   if (window_().live) timer = setInterval(loadHistory, 60000);
   return {
     update,
     refreshRange() { loadHistory(); },
-    destroy() { if (timer) clearInterval(timer); },
+    destroy() { if (timer) clearInterval(timer); clients?.destroy(); },
   };
 }

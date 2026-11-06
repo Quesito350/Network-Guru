@@ -15,6 +15,7 @@ import httpx
 
 from ..importers import protowire as pw
 from ..model import Metric
+from .. import httpclient
 
 PATH = "/SpaceX.API.Device.Device/Handle"
 GET_STATUS = pw.field(1004, b"")                 # Request.get_status = 1004 (an empty message)
@@ -113,7 +114,7 @@ def decode_status(msg: bytes) -> tuple[list[Metric], dict]:
 
 async def get_status(target: str, timeout: float = 8.0) -> tuple[list[Metric], dict]:
     try:
-        async with httpx.AsyncClient(timeout=timeout) as c:
+        async with httpclient.client(timeout=timeout) as c:
             r = await c.post(f"http://{target}{PATH}", content=REQUEST, headers=HEADERS)
     except httpx.HTTPError as e:
         raise StarlinkError(f"no answer from {target} ({type(e).__name__}) - check the router's NAT to the "

@@ -9,6 +9,7 @@ import { node, store, window_ } from "../store.js";
 import { pathWidget } from "../widgets/path.js";
 import { battery } from "../widgets/small.js";
 import { chartsSection, compTable, detailHeader, eventsSection, TAB_TITLE, vehicleHops } from "./common.js";
+import { clientsPanel } from "./clients.js";
 import { mobiusEverything, mobiusPanel } from "./mobius.js";
 
 function groupFacts(g) {
@@ -77,7 +78,10 @@ export function groupView(root, gid, nav) {
   parts.push(h("section", { class: "section" }, h("h2", { text: "Components" }), table.el));
   const mob = mobiusPanel(gid);
   if (mob) parts.push(mob);
-  const mobAll = g.components.some((c) => c.type === "mobius_server") ? mobiusEverything(nav) : null;
+  const isServer = g.components.some((c) => c.type === "mobius_server");
+  const clients = isServer ? clientsPanel(nav) : null;
+  if (clients) parts.push(clients.el);
+  const mobAll = isServer ? mobiusEverything(nav) : null;
   if (mobAll) parts.push(mobAll);
   const chartItems = g.components.filter((c) => c.type !== "victron_cerbo").map((c) => ({ comp: c.id, label: c.name }));
   const charts = chartsSection(chartItems, { primary: true, title: "Key charts" });
@@ -107,10 +111,11 @@ export function groupView(root, gid, nav) {
   power?.start?.();
   mob?.start();
   mobAll?.start();
+  clients?.start();
   loadHist();
   return {
     update,
-    destroy() { charts.destroy(); power?.destroy?.(); mob?.destroy(); mobAll?.destroy(); },
+    destroy() { charts.destroy(); power?.destroy?.(); mob?.destroy(); mobAll?.destroy(); clients?.destroy(); },
   };
 }
 

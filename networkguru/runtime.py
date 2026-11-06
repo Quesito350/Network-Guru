@@ -14,6 +14,7 @@ from . import __version__, logbuffer
 from .auth import AdminAuth, hash_password
 from .drivers import live_pollers
 from .drivers.mobius import MobiusPoller
+from .drivers.readers import MobiusServerReader
 from .drivers.reach import icmp_available
 from .events import EventStore
 from .feedback import RateLimit
@@ -26,6 +27,7 @@ from .rules import RuleSet, load_rules
 from .scheduler import Scheduler, sim_pollers
 from .sim.backfill import Progress, backfill
 from .sim.world import SimWorld
+from .stalls import METER
 from .notify import ReportService
 from .report import report_from_runtime
 from .site_settings import open_settings
@@ -34,6 +36,8 @@ from .updates import UpdateManager
 
 log = logging.getLogger("networkguru")
 TRACK_S = 3.0               # the map's vehicle positions while it is open (0.9.5)
+STALL_NOTE = "The server was busy:"
+STALL_NOTE_COUNT = 10
 TRACK_SLOW_S = 15.0
 DAY = 86400.0
 
@@ -58,6 +62,7 @@ class Runtime:
         self.scheduler: Scheduler | None = None
         self.progress = Progress()
         logbuffer.install()                  # the last log lines, for the problem report
+        logging.getLogger("httpx").setLevel(logging.WARNING)   # a line per request pushed everything else out
         self.notes: list[str] = []
         self.tasks: list[asyncio.Task] = []
         self.started = time.time()
@@ -68,6 +73,7 @@ class Runtime:
         self.reports: ReportService | None = None
         self.mobius = None                    # live mode: the Mobius explorer (drivers/mobius_explore.py)
         self.fleet = None                     # live mode: the Mobius reader, for every vehicle's position (map)
+        self.mobius_clients = None            # live mode: every Mobius client PC (mobius_clients.py, 0.9.6)
         self.discovery = None                 # live mode: the discovery scan (found.py)
         self.feedback_limit = RateLimit()     # the Feedback button (feedback.py)
         self.can_ping = False
@@ -104,6 +110,7 @@ class Runtime:
         if self.persistent:
             self.tasks.append(asyncio.create_task(periodic_flush(self.tsdb)))
         self.tasks.append(asyncio.create_task(self._housekeeping()))
+        self.tasks.append(asyncio.create_task(METER.run()))      # how long the loop is blocked (stalls.py)
         if self.mode == "sim":
             self.notes.insert(0, "Simulated data - this dashboard is not connected to any device.")
             self.world = SimWorld(self.inv)
@@ -120,6 +127,8 @@ class Runtime:
             self.can_ping = can_ping
             pollers, self.pipeline.unchecked, notes = live_pollers(self.inv, can_ping)
             self.fleet = next((p for p in pollers if isinstance(p, MobiusPoller)), None)
+            self.mobius_clients = next((p.reader.clients for p in pollers
+                                        if isinstance(getattr(p, "reader", None), MobiusServerReader)), None)
             if self.fleet is not None:                # last positions survive a restart (positions.py)
                 self.fleet.positions = VehiclePositions(Path(s.data_dir) / "state" / "positions.json")
             self.pipeline.sweep()            # show "Not checked yet" at once, not after the first sweep
@@ -248,6 +257,16 @@ class Runtime:
                 self.tsdb.prune(now)
                 self.events.prune(now - 90 * DAY)
                 last_prune = now
+            self._stall_note()
+
+    def _stall_note(self) -> None:
+        """Information under "What's checked" while the server is often blocked (stalls.py)."""
+        st = METER.summary()
+        self.notes[:] = [n for n in self.notes if not (isinstance(n, Info) and n.startswith(STALL_NOTE))]
+        if st["stalls_250ms"] >= STALL_NOTE_COUNT:
+            self.notes.append(Info(f"{STALL_NOTE} {st['stalls_250ms']} times over 0.25 s in the last 10 minutes "
+                                   f"(longest {st['stall_max_ms'] / 1000:.1f} s). Ping and port times measured meanwhile "
+                                   "are left out. Admin → Server speed finds what slows it."))
 
     async def stop(self) -> None:
         for t in self.tasks:
@@ -280,4 +299,4 @@ class Runtime:
                 "tsdb_buffer": len(getattr(self.tsdb, "buffer", []) or []),
                 "backfill_pct": round(self.progress.pct, 1), "collector_running": bool(sch and sch.running),
                 "last_tick": sch.last_tick if sch else None, "loop_ms": round(sch.loop_lag_ms, 1) if sch else None,
-                "uptime_s": round(time.time() - self.started)}
+                "uptime_s": round(time.time() - self.started), **METER.summary()}

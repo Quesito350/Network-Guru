@@ -106,6 +106,17 @@ async def mobius_summary(request: Request):
     return m.summary() if m else {"enabled": False}
 
 
+@router.get("/mobius/clients")
+async def mobius_clients(request: Request):
+    """Every Mobius client PC Mobius reports (0.9.6): connected or when last seen, its values (the map's
+    mobius_client values) and its desk in the inventory, if any. Live mode with a mobius_clients map."""
+    r = rt(request)
+    mc = r.mobius_clients
+    if mc is None:
+        return {"enabled": False, "clients": [], "columns": []}
+    return {"enabled": True, "columns": mc.columns, "clients": mc.public(r.inv)}
+
+
 @router.get("/mobius")
 async def mobius_all(request: Request):
     """Everything Mobius reports: matched groups, what is not in the inventory, site-wide values."""

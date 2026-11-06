@@ -28,6 +28,7 @@ from .config import mask, secret
 from .daily import DailyJob
 from .report import Report, as_html, as_teams_card, as_text
 from .state import StateFile
+from . import httpclient
 
 log = logging.getLogger("networkguru")
 
@@ -46,7 +47,7 @@ class SendError(Exception):
 # senders
 async def send_teams(url: str, card: dict, client: httpx.AsyncClient | None = None) -> str:
     own = client is None
-    client = client or httpx.AsyncClient(timeout=30.0)
+    client = client or httpclient.client(timeout=30.0)
     try:
         r = await client.post(url, json=card)
     except httpx.HTTPError as e:
@@ -97,7 +98,7 @@ def send_smtp(host: str, port: int, security: str, user: str | None, password: s
 async def send_graph(tenant: str, client_id: str, client_secret: str, sender: str, rep: Report, to: list[str],
                      client: httpx.AsyncClient | None = None) -> str:
     own = client is None
-    client = client or httpx.AsyncClient(timeout=30.0)
+    client = client or httpclient.client(timeout=30.0)
     try:
         tok = await client.post(f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token", data={
             "client_id": client_id, "client_secret": client_secret, "grant_type": "client_credentials",
@@ -129,7 +130,7 @@ class ReportService:
                  client_factory: Callable[[], httpx.AsyncClient] | None = None,
                  smtp: Callable[..., str] = send_smtp):
         self.settings, self.build, self.tz, self.events, self.ready, self.clock = settings, build, tz, events, ready, clock
-        self.client_factory = client_factory or (lambda: httpx.AsyncClient(timeout=30.0))
+        self.client_factory = client_factory or (lambda: httpclient.client(timeout=30.0))
         self.smtp = smtp
         self.state = StateFile(Path(data_dir) / "state" / "report.json", {"date": None, "done": False, "channels": {},
                                                                         "last_test": None})

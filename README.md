@@ -124,6 +124,9 @@ python run.py build-inventory ..\sites\devices.xlsx --site mendon --out ..\sites
   - a device that answers nothing for 3 polls is Offline; the existing "Unreachable via" logic works as with the simulator
   - the device readers (below) add the devices' own values
   - the site firewall must let the server ping the device networks; when ICMP is filtered, the port checks still count
+- **Map layers** (0.9.6): the **Layers** button, top left on the map, switches each kind of place, running / parked / grey vehicles, the 60 GHz links, the vehicle trails and the names on or off; each browser remembers its own choice.
+- **Mobius clients** (0.9.6): the Control Room tab and the Mobius Server's page list every client PC Mobius reports, with its CPU, memory, disk, frame rate and Mobius uptime (values from the Mobius map's `mobius_client` rows).
+- **Server speed** (0.9.6): **Admin → Server speed** shows how often the server was held up; ping and port times measured meanwhile are left out instead of raising latency alarms.
 - **Feedback** (header, 0.9.5): anyone sends a request, a problem or an idea - no sign-in, the name is optional. Admins see the list on **Admin → Feedback** and set each one's status (New, Planned, In progress, Done, Won't do) and a note; every change is in Events, and the morning report lists the new and open ones.
 - **Report a problem** (header): a signed-in admin downloads one zip with the version, status, the last 7 days of events, recent log lines, the inventory and any errors the page caught. Secrets are never in it. A red dot on the button means the page caught an error.
 

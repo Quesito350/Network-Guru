@@ -41,7 +41,7 @@ export function adminView(root, nav) {
       load();
     } }));
     body.append(updatesPanel(status.updates), feedbackPanel(nav, () => alive), reportPanel(status), mapPanel(status), livePanel(status),
-      discoveryPanel(nav, () => alive), secretsPanel(status.secrets), eventsPanel(nav));
+      discoveryPanel(nav, () => alive), speedPanel(status.speed), secretsPanel(status.secrets), eventsPanel(nav));
   }
 
   const off = onUpdates(() => { if (status && admin.signedIn) refreshUpdatesPanel(); });
@@ -467,6 +467,28 @@ function addDialog(x, d, nav, done) {
       h("label", { class: "field" }, h("span", { text: "Group" }), group)),
     newBox, h("div", { class: "actions-row" }, ok), msg);
   close = modal("Add a found device", body);
+}
+
+// Server speed (stalls.py): how long the server's work loop was blocked, and a 5-minute finder for the cause
+function speedPanel(sp) {
+  const msg = h("div", { class: "form-msg", role: "status" });
+  const line = (x) => !x?.running ? "Not measured (the meter is not running)."
+    : `${x.stalls_250ms} stalls over 0.25 s in the last 10 minutes, the longest ${(x.stall_max_ms / 1000).toFixed(1)} s.`
+      + (x.slow_steps_until ? ` Finding slow steps until ${fmtWhen(x.slow_steps_until)}.` : "");
+  const now = h("p", { text: line(sp) });
+  const find = h("button", { class: "btn", type: "button", text: "Find what slows the dashboard (5 min)", onclick: async () => {
+    find.disabled = true;
+    try {
+      setText(now, line(await post("/api/admin/slow-steps", { minutes: 5 })));
+      setText(msg, "On for 5 minutes: each step that blocks the server over 0.25 s is written to the log. Then download a "
+        + "problem report (Report a problem) - the steps are in its log.txt.");
+    } catch (e) { setText(msg, e.message); }
+    find.disabled = false;
+  } });
+  return h("section", { class: "panel pad" }, h("h2", { text: "Server speed" }),
+    h("p", { class: "muted", text: "Everything the server does shares one work loop. When a step blocks it, ping and port "
+      + "times measured meanwhile would read too high - those are left out, and the stalls are counted here." }),
+    now, h("div", { class: "actions-row" }, find), msg);
 }
 
 function secretsPanel(list) {

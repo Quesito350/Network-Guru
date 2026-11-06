@@ -15,6 +15,8 @@ import re
 
 import httpx
 
+from .. import httpclient
+
 ASSET_LIKE = re.compile(r"asset|machine|vehicle|unit|name|host|device|id$", re.IGNORECASE)
 PEOPLE_LIKE = re.compile(r"user|login|account|mail|finger|person|operator", re.IGNORECASE)
 PROBE_WINDOW = "7d"
@@ -30,7 +32,7 @@ class InfluxClient:
         self.url = url.rstrip("/")
         self.database = database
         self.auth = (user, password) if user and password else None
-        self.http = httpx.AsyncClient(timeout=timeout)
+        self.http = httpclient.client(timeout=timeout)
         self.version: str | None = None                      # from /ping
 
     @property

@@ -20,6 +20,7 @@ import httpx
 
 from ..config import secret
 from ..model import CompResult, Metric
+from .. import httpclient
 
 FETCH_EVERY_S = 20.0
 OFFLINE_AFTER_S = 600.0
@@ -64,7 +65,7 @@ class NetmakerApi:
 
     async def _fetch(self, now: float) -> list[dict]:
         headers = {"Authorization": f"Bearer {secret(self.token_ref)}"}
-        async with httpx.AsyncClient(timeout=15.0, headers=headers) as c:
+        async with httpclient.client(timeout=15.0, headers=headers) as c:
             hosts = await self._json(c, "/api/hosts")
             nodes = await self._json(c, "/api/nodes")
             metrics = {}

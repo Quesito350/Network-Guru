@@ -14,6 +14,8 @@ Besides the vehicle types (vcu, gnss, vai, mobius_ntrip):
     influxdb       influx_write_age_s: a table Mobius writes all the time - its newest point is the data age
     mobius_server  mobius_assets: the link table - vehicles whose newest value is true
                    mobius_clients: a table + field whose distinct values in the last 5 minutes are the clients
+    mobius_client  (0.9.6) host_cpu_pct, host_mem_used_pct, host_disk_used_pct, client_fps, client_uptime_s:
+                   fields of that same clients table, each PC's newest - the Control Room's list of clients
 """
 
 from __future__ import annotations

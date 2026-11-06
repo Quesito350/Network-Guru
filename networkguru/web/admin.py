@@ -20,6 +20,7 @@ from ..config import secret
 from ..github import UpdateError
 from ..notify import GRAPH_ENV, SMTP_PASS_ENV, SMTP_USER_ENV, TEAMS_ENV
 from ..site_settings import validate
+from ..stalls import METER
 from ..updates import TOKEN_ENV
 
 router = APIRouter(prefix="/api/admin")
@@ -119,7 +120,22 @@ def secret_list(r) -> list[dict]:
 async def status(request: Request, who: Session = Depends(require_admin)):
     r = rt(request)
     return {"name": who.name, "updates": r.updates.public_status(), "report": r.reports.public_status(),
-            "settings": r.settings_state.data, "secrets": secret_list(r)}
+            "settings": r.settings_state.data, "secrets": secret_list(r), "speed": METER.summary()}
+
+
+# -- Server speed (stalls.py) ------------------------------------------------------
+class SlowIn(BaseModel):
+    minutes: float = 5
+
+
+@router.post("/slow-steps")
+async def slow_steps(request: Request, body: SlowIn, who: Session = Depends(require_admin)):
+    """Log every step that blocks the server over 0.25 s, for a few minutes - the next problem report has them."""
+    if not 1 <= body.minutes <= 30:
+        raise HTTPException(400, "minutes must be 1-30")
+    METER.slow_steps(body.minutes)
+    _event(request, f"Finding slow steps for {body.minutes:.0f} minutes", 0, who.name)
+    return METER.summary()
 
 
 # -- Report a problem ------------------------------------------------------------

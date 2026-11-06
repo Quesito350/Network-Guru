@@ -4,7 +4,8 @@
                           which secrets are set (names only), inventory summary, the admin's note,
                           the browser details, the Mobius explorer's counts (never Mobius values) and
                           the vehicle positions' counts (never a position), the feedback counts
-                          (never the texts)
+                          (never the texts), the Mobius clients' counts (never their names), the event
+                          loop's stalls
     status.json           every node's current status, reasons and last error
     events.json           7 days of status changes, system and info events (capped)
     log.txt               the last log lines (logbuffer.py)
@@ -66,7 +67,12 @@ def build(rt, who: str, note: str, browser: dict, secrets: list[dict], logs: str
         f"Inventory: {s.inventory} - {len(inv.groups)} groups, {len(inv.comps)} components",
         "  " + ", ".join(f"{k} x{v}" for k, v in sorted(by_type.items())),
         f"History store: {h.get('tsdb')}" + (f" (error: {h.get('tsdb_error')})" if h.get("tsdb_error") else ""),
-        f"Collector running: {h.get('collector_running')}   last tick: {h.get('last_tick')}   loop: {h.get('loop_ms')} ms",
+        f"Collector running: {h.get('collector_running')}   last tick: {h.get('last_tick')}   "
+        f"last batch of polls took: {h.get('loop_ms')} ms",
+        f"Event loop stalls (last 10 min): {h.get('stalls_250ms')} over 250 ms, longest {h.get('stall_max_ms')} ms"
+        + ("" if h.get("running") else " (meter not running)")
+        + ("   - finding slow steps until " + dt.datetime.fromtimestamp(h["slow_steps_until"], tz).strftime("%H:%M")
+           if h.get("slow_steps_until") else ""),
         f"Health ok: {h.get('ok')}   dead tasks: {', '.join(h.get('dead_tasks') or []) or 'none'}",
         "",
         "Notes on the dashboard:",
@@ -77,6 +83,9 @@ def build(rt, who: str, note: str, browser: dict, secrets: list[dict], logs: str
         "Vehicle positions for the map (counts only, never positions): "
         + (", ".join(f"{k} {v}" for k, v in rt.fleet.positions.counts(rt.fleet.vehicle_of).items())
            if getattr(rt, "fleet", None) else "not read (no Mobius map)"),
+        "Mobius clients (counts only, never names): "
+        + (", ".join(f"{k} {v}" for k, v in rt.mobius_clients.counts(now).items())
+           if getattr(rt, "mobius_clients", None) else "not read"),
         "Feedback (counts only, never the texts): "
         + (", ".join(f"{k} {v}" for k, v in rt.events.feedback_counts(now - DAY, OPEN).items()) if rt.events else "none"),
         "",

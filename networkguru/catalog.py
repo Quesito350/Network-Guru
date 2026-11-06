@@ -134,6 +134,9 @@ METRICS: dict[str, MetricSpec] = {
     "host_cpu_pct": MetricSpec("CPU", "%", 0),
     "host_mem_used_pct": MetricSpec("Memory used", "%", 0),
     "host_disk_free_pct": MetricSpec("Disk free", "%", 0),
+    "host_disk_used_pct": MetricSpec("Disk used", "%", 0),            # 0.9.6: the Mobius clients list
+    "client_fps": MetricSpec("Frame rate", "fps", 0),
+    "client_uptime_s": MetricSpec("Mobius client uptime", "s", 0),
     # written by the pipeline for every node
     "status": MetricSpec("Status", "", 0),
 }
@@ -339,6 +342,9 @@ TYPES: dict[str, TypeSpec] = {t.key: t for t in [
               C("host", "CPU and memory", ("host_cpu_pct", "CPU"), ("host_mem_used_pct", "Memory"),
                 primary=True, ymin=0, ymax=100),
               C("disk", "Disk free", ("host_disk_free_pct", "Disk free"), ymin=0, ymax=100),
+              C("disk_used", "Disk used", ("host_disk_used_pct", "Disk used"), ymin=0, ymax=100),
+              C("fps", "Mobius client frame rate", ("client_fps", "Frame rate"), ymin=0),
+              C("client_uptime", "Mobius client uptime", ("client_uptime_s", "Uptime"), ymin=0),
               RTT)),
     TypeSpec("gnss_base", "GNSS base station", "BASE", 30,
              ("ping_rtt_ms", "tcp_ms"),

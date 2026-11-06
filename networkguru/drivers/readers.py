@@ -19,6 +19,7 @@ from __future__ import annotations
 import time
 
 from ..config import secret
+from ..mobius_clients import MobiusClients
 from ..model import Metric
 from . import cellular, snmp_profiles, victron
 from .influx import InfluxClient, InfluxError, find_database, forget_database, q_ident
@@ -196,7 +197,13 @@ async def _newest(c: InfluxClient, select: str, window: str) -> float | None:
 class MobiusServerReader(_MobiusDb):
     """The Mobius server's counts from its InfluxDB (the map's mobius_server values):
     mobius_assets   vehicles whose newest link value of the last day is true
-    mobius_clients  how many different values the clients table's field had in the last 5 minutes"""
+    mobius_clients  how many different values the clients table's field had in the last 5 minutes
+    0.9.6: each of those PCs' newest values of the map's mobius_client values in the same table go to
+    `clients` (mobius_clients.py) - the Control Room's list of Mobius clients."""
+
+    def __init__(self, comp, inv):
+        super().__init__(comp, inv)
+        self.clients = MobiusClients()
 
     async def read(self, now: float) -> tuple[list[Metric], dict]:
         ours = self.map.get("mobius_server") or {}
@@ -215,13 +222,34 @@ class MobiusServerReader(_MobiusDb):
                     out.append(Metric("mobius_assets", float(live)))
                 spec = ours.get("mobius_clients")
                 if spec:
-                    rows = await c.query(f"SELECT {q_ident(spec['field'])} FROM {q_ident(spec['measurement'])} "
-                                         "WHERE time > now() - 5m")
-                    names = {str(v[1]) for s in rows for v in s.get("values") or [] if len(v) > 1 and v[1] not in (None, "")}
-                    out.append(Metric("mobius_clients", float(len(names))))
+                    out.append(Metric("mobius_clients", float(await self._clients(c, spec))))
         except InfluxError as e:
             raise self.failed(c, e) from None
         return out, {}
+
+    async def _clients(self, c: InfluxClient, spec: dict) -> int:
+        name_f = spec["field"]
+        vals = {ours: s for ours, s in (self.map.get("mobius_client") or {}).items()
+                if s["measurement"] == spec["measurement"]}
+        fields = [name_f] + sorted({s.get("field") or "Value" for s in vals.values()} - {name_f})
+        rows = await c.query(f"SELECT {', '.join(q_ident(f) for f in fields)} FROM {q_ident(spec['measurement'])} "
+                             "WHERE time > now() - 5m")
+        newest: dict[str, tuple[float, dict]] = {}
+        for ser in rows:
+            cols = ser.get("columns") or []
+            for v in ser.get("values") or []:
+                row = dict(zip(cols, v))
+                name, t = row.get(name_f), row.get("time")
+                if name in (None, "") or not isinstance(t, (int, float)):
+                    continue
+                if t >= newest.get(str(name), (-1.0, {}))[0]:
+                    newest[str(name)] = (float(t), row)
+        self.clients.columns = list(vals)
+        for name, (t, row) in newest.items():
+            got = {ours: as_number(s, row.get(s.get("field") or "Value")) for ours, s in vals.items()}
+            self.clients.seen(name, t, {k: x for k, x in got.items() if x is not None})
+        self.clients.forget_old()
+        return len(newest)
 
 
 def cell_kind(comp) -> str | None:

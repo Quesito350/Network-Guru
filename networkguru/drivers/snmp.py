@@ -180,13 +180,25 @@ def localize_key(key: bytes, engine_id: bytes) -> bytes:
     return hashlib.sha1(key + engine_id + key).digest()
 
 
+_AES = None
+
+
+def _aes():
+    """(Cipher, AES, CFB), imported once - not on every packet (0.9.6)."""
+    global _AES
+    if _AES is None:
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
+        try:                                # cryptography moved CFB to "decrepit" (USM still needs it)
+            from cryptography.hazmat.decrepit.ciphers.modes import CFB
+        except ImportError:
+            from cryptography.hazmat.primitives.ciphers.modes import CFB
+        _AES = (Cipher, algorithms.AES, CFB)
+    return _AES
+
+
 def aes_cfb(key16: bytes, iv: bytes, data: bytes, encrypt: bool) -> bytes:
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
-    try:                                    # cryptography moved CFB to "decrepit" (USM still needs it)
-        from cryptography.hazmat.decrepit.ciphers.modes import CFB
-    except ImportError:
-        from cryptography.hazmat.primitives.ciphers.modes import CFB
-    c = Cipher(algorithms.AES(key16), CFB(iv))
+    Cipher, AES, CFB = _aes()
+    c = Cipher(AES(key16), CFB(iv))
     op = c.encryptor() if encrypt else c.decryptor()
     return op.update(data) + op.finalize()
 

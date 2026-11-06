@@ -9,6 +9,8 @@
 // 0.9.5: while the page is open the server reads the positions every few seconds (`every_s`); a vehicle
 // glides from where it is shown to each new position, its arrow points the way it drove (`heading`), and a
 // live one draws a fading trail of its last 2 minutes. Only the vehicles move on each frame - not the tiles.
+// 0.9.6: layers - the Layers button (top left) switches each kind of place, running / parked / grey
+// vehicles, the 60 GHz links, the trails and the names on or off; this browser remembers the choice.
 
 import { get } from "../api.js";
 import { h, s, setClass, setText } from "../dom.js";
@@ -41,9 +43,20 @@ const located = (g) => typeof g.lat === "number" && typeof g.lon === "number";
 
 function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch { /* private window */ } }
-const hideParked = () => lsGet("ng_map_hide_parked") === "1";
 
-const away = (g) => isQuiet(g, { always: true }) && !showHidden("map");
+// the layers this viewer switched off (0.9.6); "Hide them" before 0.9.6 was the parked layer
+const LAYERS_KEY = "ng_map_layers";
+const PLACE_TEXT = { trailer: "Trailers", tower: "Towers", building: "Buildings", repeater: "Repeaters", cow: "COW",
+  core: "Network core", server: "Servers", client: "Desks", other: "Other places" };
+const placeLayer = (g) => `place:${PLACE_TEXT[g.kind] ? g.kind : "other"}`;
+
+function layersOff() {
+  try {
+    const x = JSON.parse(lsGet(LAYERS_KEY) || "null");
+    if (x && Array.isArray(x.off)) return new Set(x.off.map(String));
+  } catch { /* unreadable: everything on */ }
+  return new Set(lsGet("ng_map_hide_parked") === "1" ? ["parked"] : []);
+}
 const calm = () => { try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
 
 // (east, north) in metres from a to b - flat earth, fine over a site
@@ -71,6 +84,20 @@ export function mapView(root, nav) {
   const glides = {};               // "g:<group>" / "n:<Mobius name>" -> { from, to, t0, dur, heading }
   const trails = {};               // the same keys -> { el (svg g), pts: [[lat, lon], ...] }
   let raf = 0;
+  const hiddenLayers = layersOff();
+  let closeLayers = null;
+  const isOn = (layer) => !hiddenLayers.has(layer);
+  const hideParked = () => hiddenLayers.has("parked");
+  const away = (g) => (isQuiet(g, { always: true }) && !showHidden("map")) || !isOn(placeLayer(g));
+
+  function setLayer(layer, on) {
+    if (on) hiddenLayers.delete(layer);
+    else hiddenLayers.add(layer);
+    lsSet(LAYERS_KEY, JSON.stringify({ off: [...hiddenLayers] }));
+    map?.el.classList.toggle("no-labels", hiddenLayers.has("labels"));
+    map?.render();
+    fillSide();
+  }
 
   // Where a vehicle is drawn now: gliding from where it was shown to `target` over one fetch interval.
   function shown(key, target) {
@@ -257,7 +284,7 @@ export function mapView(root, nav) {
       const key = `g:${g.id}`;
       const pos = shown(key, vehiclePos(g));
       const off = !!pos && parked(g);
-      const hidden = !pos || (off && hide);
+      const hidden = !pos || (off ? hide : !isOn("running"));
       pin.btn.classList.toggle("hidden", hidden);
       pin.btn.classList.toggle("parked", off);
       if (pos) {
@@ -265,19 +292,20 @@ export function mapView(root, nav) {
         pin.btn.style.transform = `translate(${x}px, ${y}px)`;
         turn(pin.btn, fleet.byGroup[g.id]?.heading ?? glides[key]?.heading);
       }
-      drawTrail(key, project, pos, hidden || off);
+      drawTrail(key, project, pos, hidden || off || !isOn("trails"));
     }
     for (const [name, btn] of Object.entries(foreignPin)) {
       const v = fleet.byName[name];
       if (!v) continue;
       const key = `n:${name}`;
       const pos = shown(key, v);
+      const hid = !isOn("foreign") || (!v.live && hide);
       btn.classList.toggle("parked", !v.live);
-      btn.classList.toggle("hidden", !v.live && hide);
+      btn.classList.toggle("hidden", hid);
       const { x, y } = project(pos.lat, pos.lon);
       btn.style.transform = `translate(${x}px, ${y}px)`;
       turn(btn, v.heading);
-      drawTrail(key, project, pos, !v.live);
+      drawTrail(key, project, pos, !v.live || hid || !isOn("trails"));
     }
   }
 
@@ -289,6 +317,7 @@ export function mapView(root, nav) {
     }
     drawMoving(project);
     for (const l of lines) {
+      l.el.classList.toggle("hidden", !isOn("links") || away(l.a) || away(l.b));
       const a = project(l.a.lat, l.a.lon), b = project(l.b.lat, l.b.lon);
       l.el.setAttribute("x1", a.x); l.el.setAttribute("y1", a.y);
       l.el.setAttribute("x2", b.x); l.el.setAttribute("y2", b.y);
@@ -326,7 +355,7 @@ export function mapView(root, nav) {
         h("h2", { text: `Parked vehicles (${parkedOnes.length})` }),
         h("p", { class: "muted small", text: hideP ? "Left off the map." : "At their last position, faded." }),
         h("button", { type: "button", class: "btn", text: hideP ? "Show them" : "Hide them",
-          onclick: () => { lsSet("ng_map_hide_parked", hideP ? "0" : "1"); fillSide(); map?.render(); } })) : null,
+          onclick: () => setLayer("parked", hideP) })) : null,
       others.length ? h("div", { class: "map-foreign" },
         h("h2", { text: `In Mobius, not in the inventory (${others.length})` }),
         h("ul", { class: "plain" }, ...others.map((v) =>
@@ -374,6 +403,8 @@ export function mapView(root, nav) {
     const site = store.inv.site;
     map = slippyMap({ tiles: cfg.tiles, center: { lat: site.lat, lon: site.lon }, zoom: 15,
       onTilesFailed: () => { extra = "Map images unavailable (no internet?) - positions are by GPS."; notes(); } });
+    map.el.append(layersControl());
+    map.el.classList.toggle("no-labels", hiddenLayers.has("labels"));
     holder.append(map.el, h("div", { class: "map-buttons" },
       h("button", { type: "button", class: "btn", text: "Fit the site", onclick: () => fitAll() })));
     for (const g of places) makePin(g, false);
@@ -397,10 +428,61 @@ export function mapView(root, nav) {
     const pts = places.filter((g) => !away(g)).map((g) => ({ lat: g.lat, lon: g.lon }));
     for (const g of vehicles) {
       const p = vehiclePos(g);
-      if (p && !(hide && parked(g))) pts.push(p);
+      if (p && (parked(g) ? !hide : isOn("running"))) pts.push(p);
     }
-    for (const v of foreign()) if (v.live || !hide) pts.push(v);
+    if (isOn("foreign")) for (const v of foreign()) if (v.live || !hide) pts.push(v);
     if (pts.length) map.fit(pts);
+  }
+
+  // the Layers button and its panel, top left on the map (0.9.6)
+  function layersControl() {
+    const panel = h("div", { class: "map-layers-panel hidden", role: "group", "aria-label": "Map layers" });
+    const btn = h("button", { type: "button", class: "btn", text: "Layers", "aria-expanded": "false", onclick: () => toggle() });
+    const box = h("div", { class: "map-layers", onpointerdown: (e) => e.stopPropagation(), onwheel: (e) => e.stopPropagation(),
+      onkeydown: (e) => { if (e.key !== "Escape") e.stopPropagation(); } }, btn, panel);
+    const outside = (e) => { if (!box.contains(e.target)) toggle(false); };
+    const esc = (e) => { if (e.key === "Escape") { toggle(false); btn.focus(); } };
+    function toggle(open = panel.classList.contains("hidden")) {
+      panel.classList.toggle("hidden", !open);
+      btn.setAttribute("aria-expanded", String(open));
+      if (open) {
+        fill();
+        document.addEventListener("pointerdown", outside);
+        document.addEventListener("keydown", esc);
+      } else {
+        document.removeEventListener("pointerdown", outside);
+        document.removeEventListener("keydown", esc);
+      }
+    }
+    closeLayers = () => toggle(false);
+    const row = (layer, label, count) => {
+      const cb = h("input", { type: "checkbox", checked: isOn(layer), onchange: () => setLayer(layer, cb.checked) });
+      return h("label", { class: "check" }, cb, ` ${label}`, count == null ? null : h("span", { class: "muted", text: ` ${count}` }));
+    };
+    function fill() {
+      const kinds = {};
+      for (const g of places) kinds[placeLayer(g)] = (kinds[placeLayer(g)] || 0) + 1;
+      const others = foreign();
+      const running = vehicles.filter((g) => vehiclePos(g) && !parked(g)).length;
+      const parkedN = vehicles.filter((g) => vehiclePos(g) && parked(g)).length + others.filter((v) => !v.live).length;
+      panel.replaceChildren(...[
+        Object.keys(kinds).length ? h("h3", { text: "Places" }) : null,
+        ...Object.keys(kinds).sort().map((k) => row(k, PLACE_TEXT[k.slice(6)], kinds[k])),
+        h("h3", { text: "Vehicles" }),
+        row("running", "Running", running),
+        row("parked", "Parked (faded)", parkedN),
+        fleet.enabled ? row("foreign", "Not in the inventory (grey)", others.length) : null,
+        h("h3", { text: "Lines and names" }),
+        lines.length ? row("links", "60 GHz links", lines.length) : null,
+        row("trails", "Vehicle trails (2 min)"),
+        row("labels", "Names"),
+        hiddenLayers.size ? h("button", { type: "button", class: "linkish", text: "Show all", onclick: () => {
+          for (const l of [...hiddenLayers]) setLayer(l, true);
+          fill();
+        } }) : null,
+      ].filter(Boolean));
+    }
+    return box;
   }
 
   let lastSide = 0;
@@ -416,6 +498,13 @@ export function mapView(root, nav) {
       sideSoon();
     },
     refreshRange() { notes(); },
-    destroy() { alive = false; if (timer) clearInterval(timer); if (raf) cancelAnimationFrame(raf); hideTip(); map?.destroy(); },
+    destroy() {
+      alive = false;
+      if (timer) clearInterval(timer);
+      if (raf) cancelAnimationFrame(raf);
+      closeLayers?.();
+      hideTip();
+      map?.destroy();
+    },
   };
 }

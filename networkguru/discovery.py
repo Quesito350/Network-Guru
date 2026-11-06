@@ -38,6 +38,7 @@ from .config import secret
 from .drivers import snmp as S
 from .drivers.modbus import ModbusClient, ModbusError
 from .drivers.reach import ping, tcp_check
+from . import httpclient
 
 log = logging.getLogger("networkguru.discovery")
 
@@ -321,7 +322,7 @@ class Scanner:
 
     async def _influx(self, a: str) -> str | None:
         try:
-            async with httpx.AsyncClient(timeout=self.timeout + 1) as c:
+            async with httpclient.client(timeout=self.timeout + 1) as c:
                 r = await c.get(f"http://{a}:{self.ports.influx}/ping")
         except httpx.HTTPError:
             return None

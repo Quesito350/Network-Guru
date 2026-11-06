@@ -254,6 +254,8 @@ button.tile.on { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink
 .mob-site summary { cursor: pointer; font-size: 13px; color: var(--ink-2); margin-bottom: 6px; }
 .map-quiet { margin-top: 10px; }
 table.comps.disc tbody tr { cursor: default; }
+table.comps.clients tbody tr { cursor: default; }        /* 0.9.6: the Mobius clients list */
+table.comps.clients tbody tr:hover td { background: none; }
 table.comps.disc tbody tr:hover td { background: none; }
 #disc-panel .actions-row { align-items: flex-end; }
 #disc-panel .disc-nets-field { flex: 1 1 360px; max-width: 560px; }
@@ -604,6 +606,19 @@ pre.report-text { max-height: none; }
   background: rgba(255, 255, 255, 0.78); color: #222; pointer-events: none; }
 .map-attrib:empty, .map.plain .map-attrib { display: none; }
 .map-buttons { margin-top: 8px; display: flex; gap: 8px; }
+/* 0.9.6: the Layers button and panel, top left on the map */
+.map-layers { position: absolute; top: 10px; left: 10px; z-index: 3; }
+.map-layers > .btn { box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35); }
+.map-layers-panel { margin-top: 6px; min-width: 220px; max-height: min(60vh, 520px); overflow: auto; padding: 6px 12px 10px;
+  background: var(--card); color: var(--ink); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3); font-size: 13px; }
+.map-layers-panel h3 { margin: 8px 0 4px; font-size: 11px; font-weight: bold; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--ink-2); }
+.map-layers-panel label.check { display: flex; align-items: center; gap: 6px; padding: 3px 0; cursor: pointer; }
+.map-layers-panel label.check .muted { margin-left: auto; }
+.map-layers-panel .linkish { margin-top: 8px; border: 0; background: none; color: var(--link); cursor: pointer; padding: 0;
+  font-size: 12px; }
+.map.no-labels .pin-label { display: none; }
 .map-note { margin: 0 0 10px; padding: 8px 12px; border-radius: 8px; background: var(--s-unknown-tint); font-size: 13px; }
 .map-side h2 { font-size: 14px; margin: 14px 0 6px; }
 .map-side h2:first-child { margin-top: 0; }

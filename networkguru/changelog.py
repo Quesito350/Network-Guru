@@ -7,6 +7,19 @@ networkguru.__version__ - release.py refuses to package otherwise).
 """
 
 CHANGES = [
+    ("0.9.6", "2026-11-06", [
+        "Fixed: false 'Ping RTT' and 'TCP connect' alarms (the Mobius Server and every other device read 1-2 s when "
+        "they answer in a few ms). The server held itself up for up to seconds at a time - setting up each "
+        "connection to the Mobius database, and the SNMP v3 encryption - and those stalls were counted in every "
+        "ping and port time. Both are fast now, and a time measured while the server was busy is left out.",
+        "Admin → Server speed shows how often the server was held up in the last 10 minutes, with a 5-minute "
+        "'Find what slows the dashboard' that writes the slow steps into the next problem report.",
+        "Mobius clients: the Control Room tab and the Mobius Server's page list every client PC Mobius reports - "
+        "connected or when it was last seen, its CPU, memory, disk, frame rate and Mobius uptime - also PCs that "
+        "are not desks in devices.xlsx.",
+        "Map layers: the Layers button (top left on the map) switches each kind of place, running, parked and grey "
+        "vehicles, the 60 GHz links, the vehicle trails and the names on or off. Your browser remembers the choice.",
+    ]),
     ("0.9.5", "2026-11-06", [
         "New Feedback button (top right): anyone viewing the dashboard can send a request, a problem or an idea - "
         "no sign-in needed, the name is optional. Admins track them on the Admin page (status New, Planned, In "

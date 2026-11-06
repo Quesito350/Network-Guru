@@ -16,6 +16,7 @@ import httpx
 from ..config import secret
 from ..model import Metric
 from .cellular import number
+from .. import httpclient
 
 DEFAULT_URL = "https://na.airvantage.net"
 DEFAULT_ID_REF, DEFAULT_SECRET_REF = "ALMS_CLIENT_ID", "ALMS_CLIENT_SECRET"
@@ -61,7 +62,7 @@ class AlmsAccount:
             return self.systems
 
     async def _fetch(self) -> dict[str, dict]:
-        async with httpx.AsyncClient(timeout=20.0) as c:
+        async with httpclient.client(timeout=20.0) as c:
             try:
                 if not self.token or self.token[1] < time.time() + 60:
                     r = await c.post(f"{self.url}/api/oauth/token",

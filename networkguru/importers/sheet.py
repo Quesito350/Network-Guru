@@ -23,7 +23,7 @@ GROUP_COLS = ["Site", "Group", "Kind", "Mobius asset", "Netmaker host", "Access"
 DEVICE_COLS = ["Site", "Group", "Type", "Name", "Model", "Serial", "MAC", "Address", "IP", "API address", "Link",
                "Role", "Install RSSI", "Switch port", "Firmware", "Monitor", "Modbus unit", "Notes"]
 MAP_COLS = ["Site", "Type", "Value", "Mobius table", "Field", "Text values", "Notes"]
-MOBIUS_TYPES = ["vcu", "gnss", "vai", "mobius_ntrip", "mobius_server", "influxdb"]
+MOBIUS_TYPES = ["vcu", "gnss", "vai", "mobius_ntrip", "mobius_server", "influxdb", "mobius_client"]
 MOBIUS_VALUES = sorted({s.metric for t in MOBIUS_TYPES for ch in TYPES[t].charts for s in ch.series
                         if s.metric not in ("tcp_ms", "ping_rtt_ms", "ping_loss_pct", "mobius_up")} | {"lat", "lon"})
 KINDS = ["vehicle", "trailer", "cow", "tower", "building", "repeater", "core", "server", "client"]
@@ -49,12 +49,14 @@ README = [
     "Vehicles with a Mobius asset name get VCU and GNSS checks (and VAI when Has VAI = yes) automatically.",
     "",
     "Mobius map: where each value is in the Mobius InfluxDB - one row per value (probe-influx lists the tables).",
-    "  Site empty = every site. Type: vcu, gnss, vai, mobius_ntrip, mobius_server or influxdb. Value: the dashboard's",
-    "  name for it (lat / lon = the map position). Mobius table + Field (empty = Value). Text values turn text into",
-    "  numbers, e.g. Fixed=4, Float=5, (empty)=0, *=0 (* = anything else). The vehicle is in the tag named in",
-    "  Sites > Mobius vehicle tag. mobius_server: mobius_assets = the link table (vehicles whose newest value is",
+    "  Site empty = every site. Type: vcu, gnss, vai, mobius_ntrip, mobius_server, influxdb or mobius_client. Value:",
+    "  the dashboard's name for it (lat / lon = the map position). Mobius table + Field (empty = Value). Text values",
+    "  turn text into numbers, e.g. Fixed=4, Float=5, (empty)=0, *=0 (* = anything else). The vehicle is in the tag",
+    "  named in Sites > Mobius vehicle tag. mobius_server: mobius_assets = the link table (vehicles whose newest value is",
     "  true), mobius_clients = a table + field whose different values in the last 5 minutes are the clients.",
     "  influxdb: influx_write_age_s = a table Mobius writes all the time (its newest point = the data age).",
+    "  mobius_client: host_cpu_pct, host_mem_used_pct, host_disk_used_pct, client_fps, client_uptime_s = fields of",
+    "  the mobius_clients table, shown per PC in the Control Room's list of Mobius clients.",
     "",
     "WireGuard (Netmaker): put the gateway's API address in Sites > Netmaker URL (e.g. https://api.example.com) and,",
     "  on each vehicle / location that has a tunnel, its host name as Netmaker shows it in Groups > Netmaker host.",

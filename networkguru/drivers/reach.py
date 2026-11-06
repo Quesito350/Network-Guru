@@ -27,6 +27,7 @@ import time
 
 from ..catalog import type_spec
 from ..model import CompResult, Metric
+from ..stalls import METER
 
 log = logging.getLogger("networkguru.drivers")
 
@@ -34,6 +35,7 @@ PINGS = 4                 # echo requests per poll
 PING_GAP_S = 0.2          # between the requests
 PING_WAIT_S = 1.0         # for the last reply
 TCP_TIMEOUT_S = 3.0
+STALLED_S = 0.05          # the server was blocked this long while timing: that time is left out (0.9.6)
 PORT_METRIC = {"mobius_server": "mobius_up"}     # a port that IS the device's service
 NOT_CHECKED = "Not checked yet - needs the Mobius reader (0.7.0)"
 
@@ -80,8 +82,9 @@ def icmp_available() -> tuple[bool, str]:
                        "net.ipv4.ping_group_range, as both compose files do; port checks still run")
 
 
-async def ping(host: str, count: int = PINGS) -> list[float]:
-    """Round-trip times in ms of the replies (an empty list: no reply at all)."""
+async def ping(host: str, count: int = PINGS) -> list[float | None]:
+    """Round-trip times in ms of the replies (an empty list: no reply at all). None for a reply whose
+    time is not known: the server itself was blocked while it was on its way (stalls.py)."""
     if sys.platform == "win32":
         return await asyncio.to_thread(_win_ping, host, count)
     return await _linux_ping(host, count)
@@ -92,7 +95,7 @@ async def _linux_ping(host: str, count: int) -> list[float]:
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_ICMP)
     s.setblocking(False)
     sent: dict[int, float] = {}
-    rtts: list[float] = []
+    rtts: list[float | None] = []
     ident = os.getpid() & 0xFFFF            # the kernel puts its own id on a datagram ICMP socket
     try:
         async def receive():
@@ -100,7 +103,8 @@ async def _linux_ping(host: str, count: int) -> list[float]:
                 data = await loop.sock_recv(s, 1500)
                 seq = parse_echo_reply(data)
                 if seq in sent:
-                    rtts.append((time.perf_counter() - sent.pop(seq)) * 1000)
+                    t0, t1 = sent.pop(seq), time.perf_counter()
+                    rtts.append(None if METER.blocked(t0, t1) >= STALLED_S else (t1 - t0) * 1000)
 
         rx = asyncio.ensure_future(receive())
         try:
@@ -172,18 +176,24 @@ def _win_ping(host: str, count: int) -> list[float]:
 
 
 # -- TCP -----------------------------------------------------------------------
-async def tcp_check(host: str, port: int, timeout: float = TCP_TIMEOUT_S) -> tuple[str, float]:
-    """('open', ms) | ('refused', ms) | ('timeout', ms) | ('error', ms)."""
+def _ms(t0: float) -> float | None:
+    t1 = time.perf_counter()
+    return None if METER.blocked(t0, t1) >= STALLED_S else (t1 - t0) * 1000
+
+
+async def tcp_check(host: str, port: int, timeout: float = TCP_TIMEOUT_S) -> tuple[str, float | None]:
+    """('open', ms) | ('refused', ms) | ('timeout', ms) | ('error', ms); ms None when the server itself was
+    blocked while it timed the connection (stalls.py)."""
     t0 = time.perf_counter()
     try:
         _r, w = await asyncio.wait_for(asyncio.open_connection(host, port), timeout)
     except ConnectionRefusedError:
-        return "refused", (time.perf_counter() - t0) * 1000
+        return "refused", _ms(t0)
     except (TimeoutError, asyncio.TimeoutError):
-        return "timeout", (time.perf_counter() - t0) * 1000
+        return "timeout", _ms(t0)
     except OSError:
-        return "error", (time.perf_counter() - t0) * 1000
-    ms = (time.perf_counter() - t0) * 1000
+        return "error", _ms(t0)
+    ms = _ms(t0)
     w.close()
     try:
         await asyncio.wait_for(w.wait_closed(), 1.0)
@@ -245,7 +255,7 @@ class ReachPoller:
             rtts = []
         return [self.result(now, port_res, rtts)]
 
-    def result(self, now: float, port_res: list, rtts: list[float] | None) -> CompResult:
+    def result(self, now: float, port_res: list, rtts: list[float | None] | None) -> CompResult:
         metrics: list[Metric] = []
         problems: list[str] = []
         answered = False
@@ -256,7 +266,8 @@ class ReachPoller:
             up_metric = PORT_METRIC.get(self.comp.type) if (host, port) == self.ports[0] else None
             if state == "open":
                 answered = True
-                metrics.append(Metric("tcp_ms", round(ms, 1), labels))
+                if ms is not None:                                 # None: timed while the server was blocked
+                    metrics.append(Metric("tcp_ms", round(ms, 1), labels))
             else:
                 problems.append(f"port {port} {'closed' if state == 'refused' else state}")
                 answered = answered or state == "refused"            # the device itself answered
@@ -265,7 +276,9 @@ class ReachPoller:
         if rtts is not None:
             if rtts:
                 answered = True
-                metrics.append(Metric("ping_rtt_ms", round(sum(rtts) / len(rtts), 1)))
+                timed = [r for r in rtts if r is not None]           # a reply timed during a stall: no time
+                if timed:
+                    metrics.append(Metric("ping_rtt_ms", round(sum(timed) / len(timed), 1)))
                 metrics.append(Metric("ping_loss_pct", round(100.0 * (PINGS - len(rtts)) / PINGS, 1)))
             else:
                 problems.insert(0, "no reply to ping")

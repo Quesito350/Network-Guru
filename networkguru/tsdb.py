@@ -20,6 +20,8 @@ from typing import Iterable
 
 import httpx
 
+from . import httpclient
+
 log = logging.getLogger("networkguru.tsdb")
 
 Point = tuple[str, dict, float, float]          # (metric name, labels, value, ts seconds)
@@ -157,7 +159,7 @@ class VictoriaTSDB:
 
     def __init__(self, url: str, timeout: float = 10.0, max_buffer: int = 2_000_000):
         self.url = url.rstrip("/")
-        self.client = httpx.AsyncClient(timeout=timeout)
+        self.client = httpclient.client(timeout=timeout)
         self.buffer: list[str] = []
         self.max_buffer = max_buffer
         self.last_write_ok: float | None = None
