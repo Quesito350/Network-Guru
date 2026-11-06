@@ -16,6 +16,7 @@ from .drivers import live_pollers
 from .drivers.mobius import MobiusPoller
 from .drivers.reach import icmp_available
 from .events import EventStore
+from .feedback import RateLimit
 from .history import History
 from .inventory import load_inventory
 from .model import Info
@@ -32,6 +33,8 @@ from .tsdb import MemoryTSDB, VictoriaTSDB, periodic_flush
 from .updates import UpdateManager
 
 log = logging.getLogger("networkguru")
+TRACK_S = 3.0               # the map's vehicle positions while it is open (0.9.5)
+TRACK_SLOW_S = 15.0
 DAY = 86400.0
 
 
@@ -66,6 +69,7 @@ class Runtime:
         self.mobius = None                    # live mode: the Mobius explorer (drivers/mobius_explore.py)
         self.fleet = None                     # live mode: the Mobius reader, for every vehicle's position (map)
         self.discovery = None                 # live mode: the discovery scan (found.py)
+        self.feedback_limit = RateLimit()     # the Feedback button (feedback.py)
         self.can_ping = False
 
     @property
@@ -124,6 +128,8 @@ class Runtime:
                 self.notes.append(why[0].upper() + why[1:] + ".")
             self.scheduler = Scheduler(self.pipeline, pollers, self.events)
             self.tasks.append(asyncio.create_task(self.scheduler.run()))
+            if self.fleet is not None:
+                self.tasks.append(asyncio.create_task(self._track_vehicles()))
             if self.inv.data.mobius.influx_url:       # everything else Mobius has, for the pages
                 from .drivers.mobius_explore import MobiusExplorer
                 self.mobius = MobiusExplorer(self.inv)
@@ -206,6 +212,28 @@ class Runtime:
         except Exception:  # noqa: BLE001
             log.exception("simulator stopped")
             self.notes.append("The simulator stopped with an error - see the server log.")
+
+    async def _track_vehicles(self) -> None:
+        """While someone has the Map open: the vehicles' positions every TRACK_S (MobiusPoller.poll_positions),
+        on their own - a slow device poll never holds them up. An error is logged once; then every TRACK_SLOW_S
+        until it reads again. Never a status: the Mobius reader's own poll gives those."""
+        failing = False
+        while True:
+            await asyncio.sleep(TRACK_SLOW_S if failing else TRACK_S)
+            if not self.fleet.watched():
+                continue
+            try:
+                await asyncio.wait_for(self.fleet.poll_positions(), timeout=TRACK_SLOW_S)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001 - the map's extra read must never stop
+                if not failing:
+                    log.warning("map positions not read (%s) - trying every %.0f s", e or type(e).__name__, TRACK_SLOW_S)
+                failing = True
+            else:
+                if failing:
+                    log.info("map positions read again")
+                failing = False
 
     async def _housekeeping(self) -> None:
         last_prune = 0.0

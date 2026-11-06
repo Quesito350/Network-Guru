@@ -1,4 +1,4 @@
-"""SQLite: status changes (the event list), collector runs, availability.
+"""SQLite: status changes (the event list), collector runs, availability, feedback (0.9.5).
 
 Every node (component, group, tab) gets a row each time its status changes. Status
 timelines and availability % are computed from those rows. Time when the collector was
@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS system_events(
   id INTEGER PRIMARY KEY, ts REAL NOT NULL, kind TEXT NOT NULL, level INTEGER NOT NULL DEFAULT 0,
   text TEXT NOT NULL, actor TEXT);
 CREATE INDEX IF NOT EXISTS ix_se_ts ON system_events(ts);
+CREATE TABLE IF NOT EXISTS feedback(
+  id INTEGER PRIMARY KEY, ts REAL NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, name TEXT, page TEXT,
+  status TEXT NOT NULL DEFAULT 'new', note TEXT, updated_ts REAL, updated_by TEXT);
+CREATE INDEX IF NOT EXISTS ix_fb_ts ON feedback(ts);
 """
 # Schema changes must stay ADDITIVE (new tables, nullable columns): after a failed update the
 # server rolls back to the previous version, which must still open this database.
@@ -157,6 +161,55 @@ class EventStore:
         args.append(limit)
         return [{"ts": r[0], "node": None, "kind": "system", "sys_kind": r[1], "level": r[2], "reason": r[3],
                  "actor": r[4], "suppressed": False} for r in self.db.execute(sql, args).fetchall()]
+
+    # -- feedback (feedback.py): kept for good - prune() leaves it alone ----------------------------
+    _FB = "id,ts,kind,text,name,page,status,note,updated_ts,updated_by"
+
+    def _fb(self, r) -> dict:
+        return dict(zip(self._FB.split(","), r))
+
+    def add_feedback(self, ts: float, kind: str, text: str, name: str | None = None, page: str | None = None) -> int:
+        with self.lock:
+            cur = self.db.execute("INSERT INTO feedback(ts,kind,text,name,page) VALUES(?,?,?,?,?)",
+                                  (ts, kind, text, name, page))
+            return cur.lastrowid
+
+    def get_feedback(self, fid: int) -> dict | None:
+        row = self.db.execute(f"SELECT {self._FB} FROM feedback WHERE id=?", (fid,)).fetchone()
+        return self._fb(row) if row else None
+
+    def feedback(self, statuses: tuple[str, ...] | None = None, limit: int = 500) -> list[dict]:
+        """Newest first; `statuses` limits it (feedback.OPEN, feedback.CLOSED)."""
+        sql = f"SELECT {self._FB} FROM feedback"
+        args: list = []
+        if statuses:
+            sql += f" WHERE status IN ({','.join('?' * len(statuses))})"
+            args += list(statuses)
+        sql += " ORDER BY ts DESC, id DESC LIMIT ?"
+        args.append(limit)
+        return [self._fb(r) for r in self.db.execute(sql, args).fetchall()]
+
+    def update_feedback(self, fid: int, ts: float, who: str | None, status: str | None = None,
+                        note: str | None = None) -> dict | None:
+        """Changes the status and / or the admin's note; None when there is no such feedback."""
+        old = self.get_feedback(fid)
+        if old is None:
+            return None
+        new_status = old["status"] if status is None else status
+        new_note = old["note"] if note is None else (note or None)
+        if (new_status, new_note) != (old["status"], old["note"]):
+            with self.lock:
+                self.db.execute("UPDATE feedback SET status=?, note=?, updated_ts=?, updated_by=? WHERE id=?",
+                                (new_status, new_note, ts, who, fid))
+        return self.get_feedback(fid)
+
+    def feedback_counts(self, since: float, open_statuses: tuple[str, ...]) -> dict:
+        """{"new": still New, "new_since": sent since `since` (any status), "open": open, "total"}."""
+        q = ",".join("?" * len(open_statuses))
+        row = self.db.execute(
+            f"SELECT SUM(status='new'), SUM(ts>=?), SUM(status IN ({q})), COUNT(*) FROM feedback",
+            (since, *open_statuses)).fetchone()
+        return {"new": row[0] or 0, "new_since": row[1] or 0, "open": row[2] or 0, "total": row[3] or 0}
 
     def backup_to(self, dest: Path) -> bool:
         """Consistent copy of the database (before an update). False for an in-memory store."""

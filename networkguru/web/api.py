@@ -1,4 +1,5 @@
-"""REST endpoints. Read-only apart from the simulator's fault injection; admin changes are in admin.py."""
+"""REST endpoints. Read-only apart from the simulator's fault injection and sending feedback; admin
+changes are in admin.py."""
 
 from __future__ import annotations
 
@@ -8,11 +9,14 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from .. import TOOL_NAME, __version__
+from .. import feedback as fb
+from .admin import client_ip, same_origin
 from ..catalog import catalog_json
 from ..changelog import as_json as changelog_json
 from ..maptiles import choice as maptile_choice, tiles_for
 from ..model import STATUS_NAMES, Info
 from ..report import as_html, as_text, report_from_runtime
+from ..runtime import TRACK_S
 
 router = APIRouter(prefix="/api")
 MAX_SPAN = 32 * 86400
@@ -67,12 +71,14 @@ async def map_settings(request: Request):
 
 @router.get("/map/vehicles")
 async def map_vehicles(request: Request):
-    """Every Mobius vehicle's last position (0.9.3): its inventory vehicle (group) or none, and whether it is
-    live. Live mode with a Mobius map only - the simulator's vehicles come with their GNSS info."""
+    """Every Mobius vehicle's last position (0.9.3): its inventory vehicle (group) or none, whether it is
+    live, which way it last drove and (live) its trail of the last 2 minutes (0.9.5). Live mode with a
+    Mobius map only - the simulator's vehicles come with their GNSS info."""
     fleet = rt(request).fleet
     if fleet is None:
         return {"enabled": False, "vehicles": []}
-    return {"enabled": True, "vehicles": fleet.positions.public(fleet.vehicle_of)}
+    fleet.watch()                              # the Map is open: positions every few seconds (0.9.5)
+    return {"enabled": True, "every_s": TRACK_S, "vehicles": fleet.positions.public(fleet.vehicle_of)}
 
 
 @router.get("/meta")
@@ -229,6 +235,30 @@ async def report_preview(request: Request):
             "settings": {k: r.settings_state.get(k) for k in ("report_time", "report_teams", "report_email")},
             "sent": r.reports.public_status()["channels"], "sent_date": r.reports.state.get("date"),
             "sent_note": r.reports.state.get("note")}
+
+
+class FeedbackIn(BaseModel):
+    kind: str = "request"
+    text: str = ""
+    name: str = ""
+    page: str = ""
+
+
+@router.post("/feedback")
+async def send_feedback(request: Request, body: FeedbackIn):
+    """Anyone viewing (0.9.5, feedback.py): a request, problem or idea for the admins. Same-origin only,
+    rate limited per address."""
+    same_origin(request)
+    r = rt(request)
+    if r.events is None:
+        raise HTTPException(503, "Feedback can't be saved on this server right now.")
+    try:
+        kind, text, name, page = fb.clean(body.kind, body.text, body.name, body.page)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    if not r.feedback_limit.allow(client_ip(request)):
+        raise HTTPException(429, "That's a lot of feedback in one hour - please try again later.")
+    return {"id": r.events.add_feedback(time.time(), kind, text, name, page)}
 
 
 @router.post("/sim/fault")

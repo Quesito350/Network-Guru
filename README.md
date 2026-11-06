@@ -2,7 +2,7 @@
 
 A browser dashboard for one autonomous site. It shows whether the comms chain **Mobius Server ↔ Mobius Clients ↔ vehicles** is healthy. It also covers the infrastructure in between: Rajant, Celona, Starlink, Tachyon 60 GHz, Ubiquiti, the trailers' switches, and their solar and battery.
 
-It has a **Live** view and up to **30 days of History**. It opens on the **Overview**: a panel each for Vehicles, Control Room and Infrastructure, with a few headline numbers and a chip per vehicle, desk and location, and one list of everything that needs attention. The three tabs show a card for every vehicle, desk and location, and each card opens a detail page. The **Map** shows the locations and every vehicle where its GPS last put it (parked ones faded at their last position; vehicles Mobius knows but the inventory doesn't in grey).
+It has a **Live** view and up to **30 days of History**. It opens on the **Overview**: a panel each for Vehicles, Control Room and Infrastructure, with a few headline numbers and a chip per vehicle, desk and location, and one list of everything that needs attention. The three tabs show a card for every vehicle, desk and location, and each card opens a detail page. The **Map** shows the locations and every vehicle where its GPS last put it (parked ones faded at their last position; vehicles Mobius knows but the inventory doesn't in grey). Running vehicles move on it as they drive, pointing the way they go, with a line behind them for their last 2 minutes. The **Feedback** button sends a request, a problem or an idea to the admins, who track it on the Admin page.
 
 > **Version 0.6.0** adds:
 > - a **Map** of the site: a pin per location in its live status colour, the vehicles and the 60 GHz links (satellite images when online, a plain grid offline)
@@ -124,6 +124,7 @@ python run.py build-inventory ..\sites\devices.xlsx --site mendon --out ..\sites
   - a device that answers nothing for 3 polls is Offline; the existing "Unreachable via" logic works as with the simulator
   - the device readers (below) add the devices' own values
   - the site firewall must let the server ping the device networks; when ICMP is filtered, the port checks still count
+- **Feedback** (header, 0.9.5): anyone sends a request, a problem or an idea - no sign-in, the name is optional. Admins see the list on **Admin → Feedback** and set each one's status (New, Planned, In progress, Done, Won't do) and a note; every change is in Events, and the morning report lists the new and open ones.
 - **Report a problem** (header): a signed-in admin downloads one zip with the version, status, the last 7 days of events, recent log lines, the inventory and any errors the page caught. Secrets are never in it. A red dot on the button means the page caught an error.
 
 ## Discovery scan: find devices on the network (0.9.0)

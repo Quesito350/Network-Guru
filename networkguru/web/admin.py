@@ -1,5 +1,5 @@
-"""Admin endpoints: sign-in, update approval / upload, report settings and test sends, and the
-problem report (Report a problem).
+"""Admin endpoints: sign-in, update approval / upload, report settings and test sends, the
+problem report (Report a problem) and the feedback list (0.9.5).
 
 Every change needs a signed-in admin (session cookie: HttpOnly, SameSite=Strict) AND the header
 X-Requested-With: networkguru, which a page on another site cannot send - with a same-origin
@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
 from ..auth import COOKIE, HASH_ENV, MAX_AGE_S, Session
-from .. import logbuffer, problem_report
+from .. import feedback as fb, logbuffer, problem_report
 from ..config import secret
 from ..github import UpdateError
 from ..notify import GRAPH_ENV, SMTP_PASS_ENV, SMTP_USER_ENV, TEAMS_ENV
@@ -270,3 +270,42 @@ async def discovery_export(request: Request, who: Session = Depends(require_admi
 @router.post("/report/test")
 async def report_test(request: Request, who: Session = Depends(require_admin)):
     return await rt(request).reports.send_test(who.name)
+
+
+# -- feedback (feedback.py; anyone sends it - POST /api/feedback) --------------------------------------
+@router.get("/feedback")
+async def feedback_list(request: Request, show: str = "open", who: Session = Depends(require_admin)):
+    """show: open | closed | all."""
+    r = rt(request)
+    if r.events is None:
+        return {"items": [], "counts": None, "kinds": fb.KINDS, "statuses": fb.STATUSES}
+    statuses = {"open": fb.OPEN, "closed": fb.CLOSED}.get(show)
+    return {"items": r.events.feedback(statuses), "counts": r.events.feedback_counts(time.time() - 86400, fb.OPEN),
+            "kinds": fb.KINDS, "statuses": fb.STATUSES}
+
+
+class FeedbackPatch(BaseModel):
+    status: str | None = None
+    note: str | None = None
+
+
+@router.put("/feedback/{fid}")
+async def feedback_update(request: Request, fid: int, body: FeedbackPatch, who: Session = Depends(require_admin)):
+    r = rt(request)
+    if r.events is None:
+        raise HTTPException(503, "no event database on this server")
+    if body.status is not None and body.status not in fb.STATUSES:
+        raise HTTPException(400, f"status must be one of: {', '.join(fb.STATUSES)}")
+    try:
+        note = None if body.note is None else fb.clean_note(body.note)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    old = r.events.get_feedback(fid)
+    if old is None:
+        raise HTTPException(404, "no such feedback")
+    new = r.events.update_feedback(fid, time.time(), who.name, body.status, note)
+    if new["status"] != old["status"]:
+        _event(request, f"Feedback #{fid}: {fb.STATUSES[old['status']]} → {fb.STATUSES[new['status']]}", 0, who.name)
+    elif new["note"] != old["note"]:
+        _event(request, f"Feedback #{fid}: note changed", 0, who.name)
+    return new

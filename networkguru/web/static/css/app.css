@@ -259,6 +259,14 @@ table.comps.disc tbody tr:hover td { background: none; }
 #disc-panel .disc-nets-field { flex: 1 1 360px; max-width: 560px; }
 #disc-panel .disc-nets { width: 100%; }
 #disc-panel .flash { background: var(--s-ok-tint); border-radius: 6px; padding: 8px 12px; color: var(--ink); }
+/* feedback (0.9.5) */
+#fb-panel .flash { background: var(--s-ok-tint); border-radius: 6px; padding: 8px 12px; color: var(--ink); }
+table.comps.fb tbody tr { cursor: default; }
+table.comps.fb tbody tr:hover td { background: none; }
+table.comps.fb tr.fb-new td:first-child { box-shadow: inset 3px 0 0 var(--asi-blue); }
+.fb-text { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 220px; max-width: 520px; }
+textarea.fb-note { width: 100%; min-width: 160px; font: inherit; font-size: 13px; padding: 6px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--card); color: var(--ink); box-sizing: border-box; }
 .issues {
   background: var(--card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 16px;
   box-shadow: var(--shadow);
@@ -562,10 +570,14 @@ pre.report-text { max-height: none; }
 .map-link.s-critical { stroke: var(--s-critical); }
 .map-link.s-offline { stroke: var(--s-offline); }
 .map-link.down { stroke-dasharray: 6 5; }
+/* 0.9.5: a live vehicle's last 2 minutes, older parts fainter (map.js sets each segment's opacity) */
+.map-trail line { stroke: #4fc3f7; stroke-width: 3; stroke-linecap: round; }
+.map.plain .map-trail line { stroke: var(--asi-blue); }
 .pin { position: absolute; left: 0; top: 0; width: 28px; height: 28px; margin: -14px 0 0 -14px; padding: 0;
   border-radius: 50%; border: 2px solid #fff; background: var(--s-unknown); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
   cursor: pointer; display: grid; place-items: center; }
 .pin svg { width: 16px; height: 16px; fill: #fff; }
+.pin svg { transform-origin: 50% 50%; }        /* the vehicle arrow turns to its heading */
 .pin.s-ok { background: var(--s-ok); }
 .pin.s-warning { background: var(--s-warning); }
 .pin.s-warning svg { fill: #111; }

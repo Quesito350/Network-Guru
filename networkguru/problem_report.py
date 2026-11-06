@@ -3,7 +3,8 @@
     report.txt            version, install type, mode, uptime, health, notes, settings (no secrets),
                           which secrets are set (names only), inventory summary, the admin's note,
                           the browser details, the Mobius explorer's counts (never Mobius values) and
-                          the vehicle positions' counts (never a position)
+                          the vehicle positions' counts (never a position), the feedback counts
+                          (never the texts)
     status.json           every node's current status, reasons and last error
     events.json           7 days of status changes, system and info events (capped)
     log.txt               the last log lines (logbuffer.py)
@@ -26,6 +27,7 @@ from zoneinfo import ZoneInfo
 
 from . import TOOL_NAME, __version__
 from .config import mask
+from .feedback import OPEN
 from .model import Info
 
 DAY = 86400.0
@@ -75,6 +77,8 @@ def build(rt, who: str, note: str, browser: dict, secrets: list[dict], logs: str
         "Vehicle positions for the map (counts only, never positions): "
         + (", ".join(f"{k} {v}" for k, v in rt.fleet.positions.counts(rt.fleet.vehicle_of).items())
            if getattr(rt, "fleet", None) else "not read (no Mobius map)"),
+        "Feedback (counts only, never the texts): "
+        + (", ".join(f"{k} {v}" for k, v in rt.events.feedback_counts(now - DAY, OPEN).items()) if rt.events else "none"),
         "",
         "Inventory warnings:",
         *([f"  - {w}" for w in inv.warnings] or ["  (none)"]),

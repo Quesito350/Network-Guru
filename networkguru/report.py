@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from . import feedback as fb
 from .inventory import TABS
 from .model import Status
 
@@ -29,6 +30,7 @@ CARD_COLOR = {Status.OK: "Good", Status.UNKNOWN: "Default", Status.OFFLINE: "Def
 MAX_CHANGES = 30
 MAX_INFO = 20
 MAX_STEPS = 6                 # status changes shown per device; older ones become "…"
+MAX_FEEDBACK = 5              # newest New feedback shown (0.9.5)
 CARD_LIMIT = 27 * 1024        # Teams rejects cards near 28 KB
 
 
@@ -67,6 +69,8 @@ class Report:
     availability: list[tuple[str, float | None]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     update_line: str = ""
+    feedback_line: str = ""          # "2 new since yesterday, 5 open" - empty when there is none open
+    feedback: list[str] = field(default_factory=list)
     dashboard_url: str = ""
     late: bool = False
     test: bool = False
@@ -202,11 +206,22 @@ def build_report(inv, state: dict, events, mode: str, now: float, tz: ZoneInfo, 
             upd = update["result"]["text"]
         elif update.get("check") and update["check"].get("ok") is False and update["check"].get("message"):
             upd = update["check"]["message"]
+    fb_line, fb_items = "", []
+    if events:
+        counts = events.feedback_counts(start, fb.OPEN)
+        if counts["open"] or counts["new_since"]:
+            fb_line = fb.summary_line(counts)
+            for x in events.feedback(("new",), MAX_FEEDBACK):
+                who = f" - {x['name']}" if x["name"] else ""
+                text = " ".join(x["text"].split())
+                fb_items.append(f"#{x['id']} {fb.KINDS.get(x['kind'], x['kind'])}: "
+                                f"{text[:120]}{'…' if len(text) > 120 else ''}{who}")
     return Report(site_name=inv.site.name, site_id=inv.site.id, date=dt.datetime.fromtimestamp(now, tz).strftime(
                   "%a %d %b %Y"), generated_at=now, tz=str(tz.key), mode=mode, counts=counts, total=total,
                   verdict=verdict, headline=headline, attention=attention, hidden_behind=hidden, changes=changes,
                   changes_more=max(0, len(items) - MAX_CHANGES), info=info, parked=parked,
-                  availability=availability, notes=notes, update_line=upd, dashboard_url=dashboard_url,
+                  availability=availability, notes=notes, update_line=upd, feedback_line=fb_line, feedback=fb_items,
+                  dashboard_url=dashboard_url,
                   late=late, test=test)
 
 
@@ -257,6 +272,8 @@ def as_text(r: Report) -> str:
         out.append(f"  {r.parked} vehicle(s) / station(s) parked or not in service (not an alarm)")
     if r.update_line:
         out += ["", f"Updates: {r.update_line}"]
+    if r.feedback_line:
+        out += ["", f"FEEDBACK: {r.feedback_line} (Admin page)"] + [f"  {i}" for i in r.feedback]
     if r.dashboard_url:
         out += ["", f"Dashboard: {r.dashboard_url}"]
     out += ["", "This report is sent every morning, even when all is well. No report means the Network Guru "
@@ -319,11 +336,20 @@ def as_html(r: Report) -> str:
                  + "</div>")
     if r.update_line:
         parts.append(f'<p style="margin:14px 0 0"><b>Updates:</b> {e(r.update_line)}</p>')
+    if r.feedback_line:
+        parts.append(f'<h3 style="font-size:15px;margin:16px 0 6px">Feedback</h3><div>{e(r.feedback_line)} '
+                     '(Admin page)</div>' + ("<ul style=\"margin:4px 0 0;padding-left:18px\">"
+                     + "".join(f"<li>{e(i)}</li>" for i in r.feedback) + "</ul>" if r.feedback else ""))
     if r.dashboard_url:
         parts.append(f'<p style="margin:14px 0 0"><a href="{e(r.dashboard_url)}">Open the dashboard</a></p>')
     parts.append('<p style="color:#7b8086;font-size:12px;margin-top:18px">This report is sent every morning, even '
                  "when all is well. No report means the Network Guru server needs a look.</p></div>")
     return "\n".join(parts)
+
+
+def _no_markdown(text: str) -> str:
+    """Feedback is typed by anyone: no links, bold or headings of its own in the Teams card."""
+    return text.translate(str.maketrans({c: " " for c in "[]*_`#<>~"}))
 
 
 def as_teams_card(r: Report) -> dict:
@@ -368,6 +394,10 @@ def as_teams_card(r: Report) -> dict:
         body.append({"type": "FactSet", "facts": facts, "spacing": "Medium"})
     if r.update_line:
         body.append({"type": "TextBlock", "text": f"Updates: {r.update_line}", "wrap": True, "isSubtle": True})
+    if r.feedback_line:
+        body.append({"type": "TextBlock", "text": f"Feedback: {r.feedback_line} (Admin page)", "weight": "Bolder",
+                     "spacing": "Medium", "wrap": True})
+        body += [{"type": "TextBlock", "text": _no_markdown(i), "wrap": True, "spacing": "Small"} for i in r.feedback]
     content: dict[str, Any] = {"$schema": "http://adaptivecards.io/schemas/adaptive-card.json", "type": "AdaptiveCard",
                                "version": "1.4", "body": body, "msteams": {"width": "Full"}}
     if r.dashboard_url:

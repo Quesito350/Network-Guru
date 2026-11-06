@@ -16,6 +16,10 @@ The database is the configured one, else the one holding the map's tables (influ
 vehicle's position and link go to VehiclePositions (0.9.3, the map) - the vehicles not in the inventory
 too; the position table's first ask looks back LONG_WINDOW, so parked vehicles have a place on the
 first start (FIRST_WINDOW when InfluxDB refuses that).
+
+While someone has the Map open (0.9.5: `watch()`, from /api/map/vehicles), the runtime also calls
+`poll_positions()` every few seconds: only the position table(s), the last FAST_WINDOW, so a vehicle moves
+on the map as it drives. It never gives a status - poll() does, every `interval`.
 """
 
 from __future__ import annotations
@@ -35,6 +39,8 @@ WINDOW = "2m"
 FIRST_WINDOW = "24h"
 LONG_WINDOW = "7d"          # the position table's first ask (parked vehicles) ...
 LONG_TIMEOUT_S = 8.0        # ... given this long: the scheduler waits for the whole poll
+FAST_WINDOW = "30s"         # poll_positions(): the map's quick read
+WATCH_S = 60.0              # ... while the Map was open this recently
 INFO_KEYS = ("lat", "lon")
 ALWAYS = {("vcu", LINK), ("gnss", "lat"), ("gnss", "lon")}     # read even without such a component (the map)
 
@@ -99,6 +105,7 @@ class MobiusPoller:
         self.seeded: set[tuple[str, str]] = set()
         self.last: dict[tuple[str, str], tuple[float, float]] = {}     # (group id, our name) -> (time, value)
         self.heard: dict[str, float] = {}                              # group id -> newest point of any table
+        self.watched_until = 0.0                                       # the Map is open (poll_positions)
 
     def _when(self, window: str) -> str:
         return f"time > now() - {window}"
@@ -114,24 +121,57 @@ class MobiusPoller:
         gid = self._group(asset)
         return gid if gid and self.inv.group_tab.get(gid) == "vehicles" else None
 
+    def _client(self, timeout: float) -> InfluxClient:
+        return InfluxClient(self.url, self.database, secret(self.extra.get("user_ref") or ""),
+                            secret(self.extra.get("password_ref") or ""), timeout)
+
+    def _newest(self, key: tuple[str, str], fields, window: str) -> str:
+        """Each vehicle's newest point of one table in the last `window`."""
+        table, tag = key
+        return (f"SELECT {', '.join(q_ident(f) for f in fields)} FROM {q_ident(table)} WHERE {self._when(window)}"
+                f" GROUP BY {q_ident(tag)} ORDER BY time DESC LIMIT 1")
+
+    def watch(self, now: float | None = None) -> None:
+        """The Map is open: read the positions often for a while (the runtime's position loop)."""
+        self.watched_until = (self._now() if now is None else now) + WATCH_S
+
+    def watched(self, now: float | None = None) -> bool:
+        return (self._now() if now is None else now) < self.watched_until
+
+    async def poll_positions(self) -> int:
+        """The map's quick read: the position table(s) only, once poll() has looked back over them. Never a
+        status. Returns how many vehicles it heard from."""
+        keys = [k for k in self.long_first if k in self.seeded]
+        if not keys:
+            return 0
+        heard = 0
+        try:
+            async with self._client(self.timeout) as c:
+                await find_database(c, self.table_names)
+                for key in keys:
+                    fields = self.tables[key]
+                    for s in await c.query(self._newest(key, fields, FAST_WINDOW)):
+                        self._take(key[1], s, fields)
+                        heard += 1
+        finally:
+            self.positions.save()
+        return heard
+
     async def poll(self, now: float) -> list[CompResult]:
         try:
-            async with InfluxClient(self.url, self.database, secret(self.extra.get("user_ref") or ""),
-                                    secret(self.extra.get("password_ref") or ""), self.timeout) as c:
+            async with self._client(self.timeout) as c:
                 await find_database(c, self.table_names)
                 for key, fields in self.tables.items():
-                    table, tag = key
-                    sel = f"SELECT {', '.join(q_ident(f) for f in fields)} FROM {q_ident(table)} WHERE "
-                    end = f" GROUP BY {q_ident(tag)} ORDER BY time DESC LIMIT 1"
+                    tag = key[1]
                     if key in self.seeded:
-                        rows = await c.query(sel + self._when(WINDOW) + end)
+                        rows = await c.query(self._newest(key, fields, WINDOW))
                     elif key in self.long_first:
                         try:
-                            rows = await c.query(sel + self._when(LONG_WINDOW) + end, timeout=LONG_TIMEOUT_S)
+                            rows = await c.query(self._newest(key, fields, LONG_WINDOW), timeout=LONG_TIMEOUT_S)
                         except InfluxError:                 # InfluxDB 3: too many files, or slow - one day then
-                            rows = await c.query(sel + self._when(FIRST_WINDOW) + end)
+                            rows = await c.query(self._newest(key, fields, FIRST_WINDOW))
                     else:
-                        rows = await c.query(sel + self._when(FIRST_WINDOW) + end)
+                        rows = await c.query(self._newest(key, fields, FIRST_WINDOW))
                     self.seeded.add(key)
                     for s in rows:
                         self._take(tag, s, fields)

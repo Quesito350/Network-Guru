@@ -26,7 +26,7 @@ browser ──► REST /api/... (history charts, availability, path, events) ─
     - Prometheus: pull-only, and no backfill for the simulator.
     - InfluxDB 3: the query file limit restricts long ranges, and it is easy to confuse with Mobius's own Influx.
     - SQLite for the numbers: around 100M rows per 30 days.
-- **SQLite** holds status changes and collector runs.
+- **SQLite** holds status changes and collector runs, and the feedback (0.9.5).
   - Availability and status strips are exact intervals computed from it.
   - Time when no collector was running counts as Unknown.
 - **One process.** The asyncio collector and uvicorn share one loop and the live state stays in memory. Blocking libraries will run in threads (`asyncio.to_thread`).
@@ -54,7 +54,8 @@ browser ──► REST /api/... (history charts, availability, path, events) ─
 | `tools/fetch_vm.py` | dev only: VictoriaMetrics v1.154.0 Windows exe with SHA-256 check (refuses the zstd-bug versions) |
 | `config.py` | `Settings` (+ `deploy`: `dev` this PC, `docker` install.sh server, `compose` git checkout; `public_url`); `secret(name)` reads env vars, then the server's `secrets.env` (`NETWORKGURU_SECRETS`, re-read when it changes), and remembers values; `mask()` removes them (and webhook `sig=` keys) from text |
 | `state.py` | small JSON files in `<data>/state/` (atomic writes) for settings, update and report state, so they survive restarts even when SQLite is in memory |
-| `positions.py` | every Mobius vehicle's last position and link (0.9.3, the map), kept in `<data>/state/positions.json` |
+| `positions.py` | every Mobius vehicle's last position and link (0.9.3, the map), kept in `<data>/state/positions.json`; 0.9.5: its heading (saved) and its trail of the last 2 minutes (memory only) |
+| `feedback.py` | the Feedback button (0.9.5): kinds and statuses, `clean()` (limits, `config.mask()`), the per-address `RateLimit` (memory only), the morning report's line |
 | `site_settings.py` | the admin page's settings (report time, channels, recipients, Graph / SMTP host, dashboard URL, update check time) with validation; nothing secret |
 | `auth.py` | admin password (scrypt hash in `secrets.env`), in-memory sessions, sign-in throttling |
 | `daily.py` | once-a-day jobs at a site-local HH:MM: DST-safe, catch-up after downtime, "done" decided by the owner's saved state |
@@ -72,12 +73,12 @@ browser ──► REST /api/... (history charts, availability, path, events) ─
 | `pipeline.py` | per batch: raw status → escalation / suppression / staleness / caps → roll-up component → group → tab → SQLite changes → metric points |
 | `scheduler.py` | poll loop: due pollers each second, one pipeline batch per tick, sweep every 10 s, run heartbeat every 30 s; `SimPoller` |
 | `tsdb.py` | `VictoriaTSDB` (buffered line-protocol writes, `query_range` / `aggregate`) and `MemoryTSDB` (same semantics) |
-| `events.py` | SQLite `runs`, `status_changes`, `meta`; `intervals()`, `availability()`, `events()`, collector-gap overlay |
+| `events.py` | SQLite `runs`, `status_changes`, `meta`, `feedback` (0.9.5, never pruned); `intervals()`, `availability()`, `events()`, collector-gap overlay |
 | `history.py` | chart queries from catalog `ChartSpec`s (step = range/600 rounded, min = poll interval; peak band; daily bars in site time), card sparklines, the vehicle path and its history (availability + p95 per link) |
 | `runtime.py` | wires everything: chooses the store, starts backfill + scheduler (sim) or the collector (live), housekeeping |
 | `sim/noise.py`, `sim/world.py`, `sim/backfill.py` | deterministic simulator and the 30-day fast-forward through the real pipeline |
 | `web/app.py`, `web/api.py`, `web/ws.py` | FastAPI app, REST endpoints, WebSocket (snapshot, then 1 s deltas) |
-| `web/static/` | `index.html`, `css/app.css`, `js/app.js` (routing, header, drawer, modals), `js/views/*` (incl. `home.js` - the Overview, `map.js`, `mobius.js`), `js/widgets/*` (chart, path, small, `slippy.js` map), `js/problem.js` (Report a problem, caught page errors), `js/quiet.js` (Live's gone-quiet rule) |
+| `web/static/` | `index.html`, `css/app.css`, `js/app.js` (routing, header, drawer, modals), `js/views/*` (incl. `home.js` - the Overview, `map.js`, `mobius.js`), `js/widgets/*` (chart, path, small, `slippy.js` map), `js/problem.js` (Report a problem, caught page errors), `js/feedback.js` (the Feedback button, 0.9.5), `js/quiet.js` (Live's gone-quiet rule) |
 | `drivers/reach.py` | live mode: ping (unprivileged ICMP socket on Linux, `IcmpSendEcho` on Windows) and TCP port checks |
 | `drivers/snmp.py`, `snmp_profiles.py` | SNMP v2c / v3 (USM: SHA1 auth, AES-128 privacy) client; what each type is asked for, incl. the Rajant / Tachyon vendor values |
 | `drivers/cellular.py`, `alms.py` | cell modems: the reader by model; Sierra ALEOS / MikroTik LTE / OpenWrt (snmpd extend) over SNMP; Sierra XR80 / XR90 from ALMS |
@@ -313,7 +314,9 @@ app               result (matched by request_id, each consumed once) -> system e
 | `GET /api/admin/discovery` | the scan's state and review list (admin) |
 | `POST /api/admin/discovery/scan`, `/add`, `/ignore`; `GET …/export.csv` | Scan now (409 while running or outside live mode), Add a found device, Ignore / show again, rows for `import-devices` (admin) |
 | `GET /api/mobius/summary` | per group the newest Mobius data time and map positions (the cards, the gone-quiet rule) |
-| `GET /api/map/vehicles` | every Mobius vehicle's last position: its inventory vehicle or none, live or not (0.9.3; live mode with a Mobius map) |
+| `GET /api/map/vehicles` | every Mobius vehicle's last position: its inventory vehicle or none, live or not (0.9.3; live mode with a Mobius map); its `heading` and, live, its `trail`, and `every_s` (0.9.5). Asking marks the Map as open (`MobiusPoller.watch`) |
+| `POST /api/feedback` | anyone (0.9.5): `{kind, text, name, page}` - same origin, 20 per hour per address, masked; returns `{id}` |
+| `GET /api/admin/feedback?show=open\|closed\|all`, `PUT /api/admin/feedback/{id}` | the admins' list; status and note (admin + same origin; each change is an `admin` system event) |
 | `GET /api/mobius`, `/api/mobius/{group}` | everything the Mobius explorer has: matched groups, "not in the inventory", site-wide values; one group's newest values |
 | `GET /api/inventory` | tabs → groups → components, with no `*_ref` and no sim knobs |
 | `GET /api/live`, `/api/live/{id}` | snapshot of every node |
@@ -457,7 +460,7 @@ Ranges are capped at 32 days.
   - Components with nothing to check get a reason through `Pipeline.unchecked` ("Not checked yet - needs the Mobius reader (0.7.0)"). Without ICMP permission there is one note and only port checks.
   - `build_inventory` adds `checks` by type (`TYPE_CHECKS`: Mobius server 18080, InfluxDB 8086, GNSS base 2101).
 - **Map:** groups carry `lat`/`lon` (Groups sheet Lat / Lon, filled by `import_rajant` from the snapshot GPS for non-vehicles, only when empty; validated by `build_inventory`; sent by `public_tree`).
-  - Vehicles (0.9.3): `/api/map/vehicles` (polled every 10 s) - every vehicle Mobius has a position for, from `positions.py` - else their GNSS component's `info.lat/lon` (the simulator drives them round the located pins, `SimWorld.veh_pos`), else the explorer's lat / lon. A parked vehicle (Offline, link false, or quiet) stays at its last position, faded; a Mobius name with no inventory vehicle gets a grey pin while its position is under 7 days old. "Hide them" (browser-local) takes parked ones off; locations keep the gone-quiet rule.
+  - Vehicles (0.9.3): `/api/map/vehicles` (0.9.5: polled every 3 s; it marks the Map as open, and while it is the runtime's `_track_vehicles` loop calls `MobiusPoller.poll_positions` every 3 s - only the position table(s), the last 30 s, never a status, on its own task so a slow device poll never holds it up; the browser glides each pin over one interval with requestAnimationFrame, moving only the vehicles and their trails, turns the arrow to `heading` and draws the trail as fading segments) - every vehicle Mobius has a position for, from `positions.py` - else their GNSS component's `info.lat/lon` (the simulator drives them round the located pins, `SimWorld.veh_pos`), else the explorer's lat / lon. A parked vehicle (Offline, link false, or quiet) stays at its last position, faded; a Mobius name with no inventory vehicle gets a grey pin while its position is under 7 days old. "Hide them" (browser-local) takes parked ones off; locations keep the gone-quiet rule.
   - `js/widgets/slippy.js`: Web Mercator, 256-px tiles, drag/wheel/keys, scale bar, plain-grid fallback after the first tiles fail. `js/views/map.js`: status pins by kind, link lines between `partner` components, side lists: parked vehicles, in Mobius but not in the inventory, no position.
   - Background: `map_background` setting (satellite / street / none, `maptiles.py`). The CSP `img-src` gets only that provider's origin (`web/app.py csp()`); tiles are loaded by the browser, never the server.
 - **Report a problem:** `POST /api/admin/problem-report` (admin + same origin) returns a zip built in memory by `problem_report.build`: report.txt, status.json, events.json (7 days), log.txt (`logbuffer`), browser-errors.json (from `js/problem.js`), updates.json, morning-report.json, inventory.yaml. Every text goes through `config.mask()`; secrets.env, hashes and session tokens are never read into it. Downloading is an admin event.
@@ -508,6 +511,7 @@ Ranges are capped at 32 days.
 | 0.9.2 ✓ | the Mobius mapping from Mendon's InfluxDB (one table per value, the Mobius map sheet), InfluxDB 3 (details in *Device readers*) | Mendon LAN |
 | 0.9.3 ✓ | the Mobius database found by itself; every Mobius vehicle on the map (parked ones at their last position, unmatched ones grey); the Overview tab | Mendon LAN |
 | 0.9.4 ✓ | banners only for to-dos ("What's checked" for the rest); scan-added copies the inventory has cleared into Events | test PC |
+| 0.9.5 ✓ | the Feedback button (admins track requests; the morning report lists them); vehicles that move on the map (3 s, gliding, heading, a 2-minute trail) | test PC |
 | 0.9.x | unit checks of the Tachyon and Sierra values against the devices | Mendon LAN |
 | 0.10.0 | readers 3: MikroTik REST (GET only), Celona Orchestrator, airMAX SNMP, UniFi API, Westermo SNMP, windows_exporter; address lookups for DHCP (UniFi clients, MikroTik leases/ARP, Rajant ARP over SNMP, MNDP, DNS) | each device type |
 | 1.0.0 | thresholds reviewed with ops, optional view password, HTTPS (admin sign-in is plain HTTP on the LAN in 0.5.0), second-site offline install | site |
@@ -550,6 +554,7 @@ Ranges are capped at 32 days.
 
 ## Version history
 
+- **0.9.5** (2026-11-06): Feedback - `feedback.py`, SQLite `feedback` (additive, never pruned), `POST /api/feedback` (anyone, same origin, rate limited per address in memory, text and note masked), the admin list and `PUT` (each change an `admin` event), `js/feedback.js` + Admin → Feedback, the morning report's line and newest New ones (the Teams card without markdown from the sender), problem reports counts only. The moving map - `positions.py` heading (saved, after 2 m) and a 2-minute trail (memory; a jump over 500 m starts a new one), `MobiusPoller.poll_positions` / `watch`, `Runtime._track_vehicles` (every 3 s while watched, 15 s after an error, logged once), `/api/map/vehicles` `every_s`; `map.js` glides, turns and draws trails; a hidden tab stops asking. Measured on Mendon's InfluxDB 3: the 30-second position query takes 20-210 ms.
 - **0.9.4** (2026-10-28): dashboard notes are to-dos (banners) or `model.Info` (a `str` subclass: the `live_pollers` summary, "No VictoriaMetrics configured") shown under the footer's "What's checked" (`/api/meta` `notes` / `info`; the problem report marks "(info)"); `found.merge_added` returns the kept entries and `load_site_inventory` removes added devices the inventory has itself from `added.json` (like `apply_overlay`), reported once as `discovery` system events instead of a note at every start; `Discovery.add` passes its own `StateFile`.
 - **0.9.3** (2026-10-28): the Mobius database found by itself (`influx.find_database`, + Sites "Mobius database"; 0.9.2 read nothing when the inventory named none); `positions.py` + `/api/map/vehicles`: every Mobius vehicle's last position and link, kept in `state/positions.json`, the position table's first ask 7 days back; the map: parked vehicles faded at their last position (Hide / Show), grey pins for Mobius names not in the inventory; the Overview tab (`views/home.js`, the start page; "Needs attention now" shared in `common.js`); problem reports: position counts only, `status.json` without GNSS lat / lon; the fake InfluxDB wants a database, as the real one.
 - **0.9.2** (2026-10-27): the Mobius mapping - per-value map from devices.xlsx's Mobius map sheet (+ Sites "Mobius vehicle tag"), `MobiusPoller` keeps last values (24 h first pass, then 2 min) and knows who is not communicating, `MobiusServerReader`, a time limit on every InfluxDB query (InfluxDB 3: `probe-influx`, the age reader, the explorer's tag values); the explorer reads the mapped tables first and never takes a user-name tag; `vcu_supply_v` 11.5 / 10.5 V; Scan now saves the typed networks first.

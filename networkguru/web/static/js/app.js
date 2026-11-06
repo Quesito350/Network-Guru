@@ -6,6 +6,7 @@ import { clear, h, s, setText } from "./dom.js";
 import { fmtAgo, fromLocalInput, setup, STATUS_LABEL, toLocalInput, tz } from "./fmt.js";
 import { badge, countsLine, dot } from "./status.js";
 import { modal } from "./modal.js";
+import { feedbackButton } from "./feedback.js";
 import { errorButton, watchErrors } from "./problem.js";
 import { startMobiusSummary } from "./quiet.js";
 import { indexInventory, node, notify, store, subscribe, window_ } from "./store.js";
@@ -130,10 +131,11 @@ function buildHeader() {
   el.help = h("button", { class: "hbtn", type: "button", text: "?", title: "How to read this dashboard", "aria-label": "Help", onclick: openHelp });
   el.admin = h("a", { class: "hbtn", href: "#/admin", text: "Admin", title: "Updates and the morning report (sign-in needed to change anything)" });
   el.report = errorButton();
+  el.feedback = feedbackButton();
   bar.append(
     h("a", { class: "brand", href: "#/overview" }, h("img", { src: "/static/img/asi_logo_white.png", alt: "ASI" }),
       h("div", {}, h("div", { class: "title", text: "Network Guru" }), h("div", { class: "site", text: store.meta.site.name }))),
-    el.mode, el.range, el.custom, h("span", { class: "spacer" }), el.conn, el.evBtn, el.report, el.admin, el.theme, el.help);
+    el.mode, el.range, el.custom, h("span", { class: "spacer" }), el.conn, el.evBtn, el.feedback, el.report, el.admin, el.theme, el.help);
   applyTheme(lsGet("ng_theme") || "auto");
 }
 
@@ -334,6 +336,8 @@ function openHelp() {
       h("li", { text: "Battery and solar: from the Victron Cerbo GX on each trailer." })),
     h("h3", { text: "Notes" }),
     h("p", { text: "A yellow note at the top is something to do (for example a device login to add). What the dashboard checks and reads is under \"What's checked\" at the bottom of the page." }),
+    h("h3", { text: "Feedback" }),
+    h("p", { text: "Feedback (top right) sends a request, a problem or an idea to the dashboard's admins - no sign-in needed. They track it on the Admin page, and new ones are in the morning report. Report a problem is different: an admin downloads a zip for whoever looks into a fault of the dashboard itself." }),
     h("p", { class: "muted", text: `Times are shown in the site's time zone (${tz()}). The limits are in rules_default.yaml on the server and are starting values for ops to review.` }),
   ]);
 }

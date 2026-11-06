@@ -7,6 +7,16 @@ networkguru.__version__ - release.py refuses to package otherwise).
 """
 
 CHANGES = [
+    ("0.9.5", "2026-11-06", [
+        "New Feedback button (top right): anyone viewing the dashboard can send a request, a problem or an idea - "
+        "no sign-in needed, the name is optional. Admins track them on the Admin page (status New, Planned, In "
+        "progress, Done or Won't do, and a note); every status change is in Events.",
+        "The morning report lists the feedback: how many came in since yesterday, how many are open, and the newest "
+        "new ones.",
+        "Vehicles move on the map as they drive: while the Map is open their positions are read every 3 seconds, each "
+        "pin glides to its new place, its arrow points the way it is driving, and a fading line shows its last 2 "
+        "minutes. A parked vehicle keeps pointing the way it last drove.",
+    ]),
     ("0.9.4", "2026-10-28", [
         "The yellow notes at the top are only things to do now (for example device logins to add). What the "
         "dashboard checks and reads - and that history is kept in memory - moved to 'What's checked' at the bottom "

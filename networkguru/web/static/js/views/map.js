@@ -6,6 +6,9 @@
 // else lat / lon fields Mobius has for them (0.8.0). A parked vehicle stays at its last position, faded
 // ("Hide them" takes them off); a Mobius vehicle that is not in the inventory gets a grey pin with its
 // Mobius name. Locations that have gone quiet are left out, as in Live (quiet.js).
+// 0.9.5: while the page is open the server reads the positions every few seconds (`every_s`); a vehicle
+// glides from where it is shown to each new position, its arrow points the way it drove (`heading`), and a
+// live one draws a fading trail of its last 2 minutes. Only the vehicles move on each frame - not the tiles.
 
 import { get } from "../api.js";
 import { h, s, setClass, setText } from "../dom.js";
@@ -29,7 +32,9 @@ const GLYPH = {
 const KIND_TEXT = { trailer: "Trailer", tower: "Tower", building: "Building", repeater: "Repeater", cow: "COW",
   core: "Network core", server: "Server", client: "Desk", vehicle: "Vehicle" };
 const FOREIGN_MAX_AGE_S = 7 * 86400;     // a Mobius vehicle not in the inventory: on the map while this fresh
-const FLEET_EVERY_MS = 10000;
+const FLEET_EVERY_MS = 3000;             // unless the server says otherwise (every_s)
+const GLIDE_MAX_M = 200;                 // a longer jump (GPS back after a gap) moves at once
+const TURN_M = 2;                        // the simulator's vehicles: moved this far = a new heading
 
 const glyphOf = (kind) => GLYPH[kind] || (kind === "server" || kind === "client" ? GLYPH.core : GLYPH.other);
 const located = (g) => typeof g.lat === "number" && typeof g.lon === "number";
@@ -39,6 +44,12 @@ function lsSet(k, v) { try { localStorage.setItem(k, v); } catch { /* private wi
 const hideParked = () => lsGet("ng_map_hide_parked") === "1";
 
 const away = (g) => isQuiet(g, { always: true }) && !showHidden("map");
+const calm = () => { try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
+
+// (east, north) in metres from a to b - flat earth, fine over a site
+function metres(a, b) {
+  return [(b.lon - a.lon) * 111320 * Math.cos(((a.lat + b.lat) / 2) * Math.PI / 180), (b.lat - a.lat) * 110540];
+}
 
 export function mapView(root, nav) {
   const head = h("div", { class: "page-head" }, h("h1", { text: "Map" }), h("span", { class: "sub", text: store.inv.site.name }));
@@ -56,6 +67,40 @@ export function mapView(root, nav) {
   const foreignPin = {};           // Mobius name -> button (in Mobius, not in the inventory)
   const lines = [];                // { a, b, comps, el }
   let fleet = { enabled: false, vehicles: [], byGroup: {}, byName: {} };
+  let everyMs = FLEET_EVERY_MS;
+  const glides = {};               // "g:<group>" / "n:<Mobius name>" -> { from, to, t0, dur, heading }
+  const trails = {};               // the same keys -> { el (svg g), pts: [[lat, lon], ...] }
+  let raf = 0;
+
+  // Where a vehicle is drawn now: gliding from where it was shown to `target` over one fetch interval.
+  function shown(key, target) {
+    if (!target) return null;
+    const now = performance.now();
+    let gl = glides[key];
+    if (!gl || gl.to.lat !== target.lat || gl.to.lon !== target.lon) {
+      const from = gl ? at(gl, now) : null;
+      const [e, n] = from ? metres(from, target) : [0, 0];
+      const far = Math.hypot(e, n) > GLIDE_MAX_M;
+      const heading = Math.hypot(e, n) >= TURN_M && !far ? (Math.atan2(e, n) * 180 / Math.PI + 360) % 360 : gl?.heading ?? null;
+      gl = glides[key] = { from: from && !far && !calm() ? from : { lat: target.lat, lon: target.lon },
+        to: { lat: target.lat, lon: target.lon }, t0: now, dur: everyMs, heading };
+      kick();
+    }
+    return at(gl, now);
+  }
+  function at(gl, now) {
+    const k = Math.min(1, Math.max(0, (now - gl.t0) / gl.dur));
+    return { lat: gl.from.lat + (gl.to.lat - gl.from.lat) * k, lon: gl.from.lon + (gl.to.lon - gl.from.lon) * k };
+  }
+  const gliding = (now) => Object.values(glides).some((gl) => now - gl.t0 < gl.dur
+    && (gl.from.lat !== gl.to.lat || gl.from.lon !== gl.to.lon));
+  function kick() { if (!raf && map) raf = requestAnimationFrame(frame); }
+  function frame(now) {
+    raf = 0;
+    if (!alive || !map) return;
+    drawMoving(map.project);
+    if (gliding(now)) kick();
+  }
 
   // where a vehicle is: Mobius (live or its last position), else its GNSS info, else the explorer
   function vehiclePos(g) {
@@ -118,6 +163,46 @@ export function mapView(root, nav) {
     onblur: hideTip,
   });
 
+  function turn(btn, deg) {
+    btn.firstChild.style.transform = deg == null ? "" : `rotate(${Math.round(deg)}deg)`;
+  }
+
+  // a fading line behind each live vehicle: its last 2 minutes (the server's trail)
+  function syncTrails() {
+    const want = {};
+    for (const g of vehicles) {
+      const f = fleet.byGroup[g.id];
+      if (f?.trail?.length > 1) want[`g:${g.id}`] = f.trail;
+    }
+    for (const v of foreign()) if (v.trail?.length > 1) want[`n:${v.name}`] = v.trail;
+    for (const [key, tr] of Object.entries(trails)) {
+      if (!want[key]) { tr.el.remove(); delete trails[key]; }
+    }
+    for (const [key, pts] of Object.entries(want)) {
+      const tr = trails[key] || (trails[key] = { el: s("g", { class: "map-trail" }), pts: [] });
+      if (!tr.el.isConnected) map.overlay.prepend(tr.el);
+      tr.pts = pts;
+      while (tr.el.childNodes.length < pts.length - 1) tr.el.append(s("line", {}));
+      while (tr.el.childNodes.length > pts.length - 1) tr.el.lastChild.remove();
+      const n = tr.el.childNodes.length;
+      tr.el.childNodes.forEach((ln, i) => ln.setAttribute("stroke-opacity", (0.15 + 0.7 * ((i + 1) / n)).toFixed(2)));
+    }
+  }
+
+  function drawTrail(key, project, pos, hidden) {
+    const tr = trails[key];
+    if (!tr) return;
+    tr.el.classList.toggle("hidden", hidden || !pos);
+    if (hidden || !pos) return;
+    // the newest point is where the pin glides to: the last segment ends at the pin instead
+    const pts = tr.pts.slice(0, -1).map(([la, lo]) => project(la, lo));
+    pts.push(project(pos.lat, pos.lon));
+    tr.el.childNodes.forEach((ln, i) => {
+      ln.setAttribute("x1", pts[i].x); ln.setAttribute("y1", pts[i].y);
+      ln.setAttribute("x2", pts[i + 1].x); ln.setAttribute("y2", pts[i + 1].y);
+    });
+  }
+
   function makePin(g, small) {
     const kind = g.tab === "vehicles" ? "vehicle" : g.kind;
     const btn = h("button", { type: "button", class: `pin${small ? " small" : ""}`, "aria-label": g.name,
@@ -163,33 +248,46 @@ export function mapView(root, nav) {
     }
   }
 
+  // the vehicles only - every animation frame while one glides
+  function drawMoving(project) {
+    const hide = hideParked();
+    for (const g of vehicles) {
+      const pin = pinOf[g.id];
+      if (!pin) continue;
+      const key = `g:${g.id}`;
+      const pos = shown(key, vehiclePos(g));
+      const off = !!pos && parked(g);
+      const hidden = !pos || (off && hide);
+      pin.btn.classList.toggle("hidden", hidden);
+      pin.btn.classList.toggle("parked", off);
+      if (pos) {
+        const { x, y } = project(pos.lat, pos.lon);
+        pin.btn.style.transform = `translate(${x}px, ${y}px)`;
+        turn(pin.btn, fleet.byGroup[g.id]?.heading ?? glides[key]?.heading);
+      }
+      drawTrail(key, project, pos, hidden || off);
+    }
+    for (const [name, btn] of Object.entries(foreignPin)) {
+      const v = fleet.byName[name];
+      if (!v) continue;
+      const key = `n:${name}`;
+      const pos = shown(key, v);
+      btn.classList.toggle("parked", !v.live);
+      btn.classList.toggle("hidden", !v.live && hide);
+      const { x, y } = project(pos.lat, pos.lon);
+      btn.style.transform = `translate(${x}px, ${y}px)`;
+      turn(btn, v.heading);
+      drawTrail(key, project, pos, !v.live);
+    }
+  }
+
   function draw(project) {
     for (const g of places) {
       const { x, y } = project(g.lat, g.lon);
       pinOf[g.id].btn.style.transform = `translate(${x}px, ${y}px)`;
       pinOf[g.id].btn.classList.toggle("hidden", away(g));
     }
-    const hide = hideParked();
-    for (const g of vehicles) {
-      const pos = vehiclePos(g);
-      const pin = pinOf[g.id];
-      if (!pin) continue;
-      const off = !!pos && parked(g);
-      pin.btn.classList.toggle("hidden", !pos || (off && hide));
-      pin.btn.classList.toggle("parked", off);
-      if (pos) {
-        const { x, y } = project(pos.lat, pos.lon);
-        pin.btn.style.transform = `translate(${x}px, ${y}px)`;
-      }
-    }
-    for (const [name, btn] of Object.entries(foreignPin)) {
-      const v = fleet.byName[name];
-      if (!v) continue;
-      btn.classList.toggle("parked", !v.live);
-      btn.classList.toggle("hidden", !v.live && hide);
-      const { x, y } = project(v.lat, v.lon);
-      btn.style.transform = `translate(${x}px, ${y}px)`;
-    }
+    drawMoving(project);
     for (const l of lines) {
       const a = project(l.a.lat, l.a.lon), b = project(l.b.lat, l.b.lon);
       l.el.setAttribute("x1", a.x); l.el.setAttribute("y1", a.y);
@@ -258,10 +356,12 @@ export function mapView(root, nav) {
       if (v.group && (!byGroup[v.group] || v.t > byGroup[v.group].t)) byGroup[v.group] = v;
     }
     fleet = { ...r, vehicles: r.vehicles || [], byGroup, byName: Object.fromEntries((r.vehicles || []).map((v) => [v.name, v])) };
+    if (r.every_s > 0) everyMs = r.every_s * 1000;
     if (!map) return;
     syncForeign();
-    map.render();
-    fillSide();
+    syncTrails();
+    drawMoving(map.project);
+    sideSoon();
   }
 
   let alive = true;
@@ -286,7 +386,9 @@ export function mapView(root, nav) {
     notes();
     map.onRender(draw);
     fitAll();
-    if (fleet.enabled) timer = setInterval(loadFleet, FLEET_EVERY_MS);
+    syncTrails();
+    // a hidden tab stops asking, so the server stops its quick position reads too
+    if (fleet.enabled) timer = setInterval(() => { if (!document.hidden) loadFleet(); }, everyMs);
   })();
 
   function fitAll() {
@@ -302,15 +404,18 @@ export function mapView(root, nav) {
   }
 
   let lastSide = 0;
+  function sideSoon() {
+    const now = Date.now();
+    if (now - lastSide > 5000) { lastSide = now; fillSide(); }
+  }
   return {
     update() {
       if (!map) return;
       colour();
       map.render();
-      const now = Date.now();
-      if (now - lastSide > 5000) { lastSide = now; fillSide(); }
+      sideSoon();
     },
     refreshRange() { notes(); },
-    destroy() { alive = false; if (timer) clearInterval(timer); hideTip(); map?.destroy(); },
+    destroy() { alive = false; if (timer) clearInterval(timer); if (raf) cancelAnimationFrame(raf); hideTip(); map?.destroy(); },
   };
 }

@@ -40,7 +40,7 @@ export function adminView(root, nav) {
       head.lastChild.remove();
       load();
     } }));
-    body.append(updatesPanel(status.updates), reportPanel(status), mapPanel(status), livePanel(status),
+    body.append(updatesPanel(status.updates), feedbackPanel(nav, () => alive), reportPanel(status), mapPanel(status), livePanel(status),
       discoveryPanel(nav, () => alive), secretsPanel(status.secrets), eventsPanel(nav));
   }
 
@@ -139,6 +139,62 @@ function sendZip(file, shaText, onProgress) {
     x.onerror = () => reject(new Error("The upload was interrupted."));
     x.send(file);
   });
+}
+
+// Feedback (feedback.js sends it, anyone can): the admins' list - status and a note per request
+const FB_SHOW = [["open", "Open"], ["closed", "Done"], ["all", "All"]];
+
+function feedbackPanel(nav, isAlive) {
+  const sub = h("span", { class: "muted" });
+  const el = h("section", { class: "panel pad", id: "fb-panel" }, h("h2", {}, "Feedback ", sub),
+    h("p", { class: "muted", text: "Requests, problems and ideas sent with the Feedback button (top right) by anyone viewing the "
+      + "dashboard. New and open ones are in the morning report; every status change is in Events." }));
+  const seg = h("div", { class: "seg light", role: "group", "aria-label": "Show" });
+  const box = h("div", {});
+  el.append(h("div", { class: "actions-row" }, seg), box);
+  let show = "open";
+
+  async function load(flash = "") {
+    let d;
+    try { d = await get("/api/admin/feedback", { show }); } catch (e) { box.replaceChildren(h("p", { text: e.message })); return; }
+    if (!isAlive()) return;
+    const c = d.counts;
+    setText(sub, c ? `· ${c.new} new · ${c.open} open` : "");
+    seg.replaceChildren(...FB_SHOW.map(([v, t]) => h("button", { type: "button", text: t,
+      "aria-pressed": String(v === show), onclick: () => { show = v; load(); } })));
+    const rows = d.items.map((x) => fbRow(x, d, nav, load));
+    box.replaceChildren(...[flash ? h("p", { class: "flash", role: "status", text: flash }) : null,
+      rows.length ? h("div", { class: "table-scroll" }, h("table", { class: "comps fb" },
+        h("thead", {}, h("tr", {}, ...["#", "Sent", "From", "Feedback", "Status", "Admin note", ""].map((t) => h("th", { text: t })))),
+        h("tbody", {}, rows)))
+        : h("p", { class: "muted", text: show === "open" ? "Nothing open." : "Nothing here yet." })].filter(Boolean));
+  }
+
+  load();
+  return el;
+}
+
+function fbRow(x, d, nav, reload) {
+  const status = h("select", { class: "btn", "aria-label": `Status of #${x.id}` },
+    ...Object.entries(d.statuses).map(([v, t]) => h("option", { value: v, text: t, selected: v === x.status })));
+  const note = h("textarea", { rows: 2, maxlength: 1000, class: "fb-note", "aria-label": `Admin note for #${x.id}`, text: x.note || "" });
+  const msg = h("div", { class: "form-msg", role: "alert" });
+  const save = h("button", { class: "btn", type: "button", text: "Save", onclick: async () => {
+    save.disabled = true;
+    try {
+      await post(`/api/admin/feedback/${x.id}`, { status: status.value, note: note.value }, "PUT");
+      reload(`#${x.id} saved.`);
+    } catch (e) { setText(msg, e.message); save.disabled = false; }
+  } });
+  const page = x.page ? h("a", { href: x.page, text: x.page.slice(2) || "overview", onclick: (e) => { e.preventDefault(); nav(x.page); } }) : null;
+  return h("tr", { class: x.status === "new" ? "fb-new" : "" },
+    h("td", { class: "num", text: String(x.id) }),
+    h("td", { class: "muted", text: fmtWhen(x.ts) }),
+    h("td", {}, h("div", { text: x.name || "–" }), page ? h("div", { class: "muted small" }, "on ", page) : null),
+    h("td", {}, h("div", { class: "muted small", text: d.kinds[x.kind] || x.kind }), h("div", { class: "fb-text", text: x.text })),
+    h("td", {}, status, x.updated_by ? h("div", { class: "muted small", text: `${x.updated_by}, ${fmtWhen(x.updated_ts)}` }) : null),
+    h("td", {}, note),
+    h("td", {}, save, msg));
 }
 
 // ---------------------------------------------------------------------------

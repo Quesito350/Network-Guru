@@ -172,7 +172,8 @@ def test_positions_store_ignores_old_and_bad_values(tmp_path):
     vp.position("X", 95.0, -111.0, 950.0)                              # not on Earth: kept out
     vp.link("X", True, 900.0)
     vp.heard("X", 950.0)
-    assert vp.public(lambda n: None) == [{"name": "X", "group": None, "lat": 40.0, "lon": -111.0, "t": 900.0, "live": True}]
+    assert vp.public(lambda n: None) == [{"name": "X", "group": None, "lat": 40.0, "lon": -111.0, "t": 900.0, "live": True,
+                                               "heading": None, "trail": []}]
     vp.save()
     assert not (tmp_path / "p.json").exists()                          # at most once a minute
     clock[0] += 61
