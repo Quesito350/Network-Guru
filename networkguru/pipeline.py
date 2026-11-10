@@ -22,6 +22,7 @@ from .model import CompResult, Metric, Status
 from .rules import RuleMemory, RuleSet
 
 WATCH_INFO = ("address", "firmware", "software")   # text facts whose changes become events
+READ_NOTES = ("read_error", "vendor_error", "reader")   # a reader's complaints: a good read without them clears them
 
 
 @dataclass
@@ -122,6 +123,10 @@ class Pipeline:
                     if new not in (None, "") and old not in (None, "") and new != old:
                         info_changes.append((r.ts, r.comp_id, key, str(old), str(new)))
                 st.info.update(r.info)
+                if any(m.name == "read_ok" and m.value == 1.0 for m in r.metrics):    # 0.9.8: not left from an old read
+                    for key in READ_NOTES:
+                        if key not in r.info:
+                            st.info.pop(key, None)
                 ev = self.rules.evaluate(r.metrics, r.ts, self.memory[r.comp_id], c.rules)
                 st.raw, st.raw_reasons, st.down = ev.status, ev.reasons, ev.offline
                 if c.link:                             # name the link: "60 GHz link COW-T46 down"

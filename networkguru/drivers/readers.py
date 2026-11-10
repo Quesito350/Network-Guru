@@ -33,6 +33,7 @@ SNMP_TYPES = ("rajant", "tachyon", "switch")
 READ_EVERY_S = 30.0
 AGE_LONG_EVERY_S = 600.0
 LINK_RSSI: dict[str, dict[str, tuple[float, float]]] = {}    # Tachyon link -> {comp id: (time, rssi)}
+REFUSED = ("no access", "authorization error", "no such name")     # snmp.ERROR_STATUS texts: the agent said no
 
 
 class ReadError(Exception):
@@ -89,11 +90,31 @@ class SnmpReader:
             if self._client:                                   # a fresh discovery next time
                 self._client.close()
                 self._client = None
-            hint = " - check the SNMP login and that UDP 161 is allowed from this server" if "no SNMP answer" in str(e) else ""
-            raise ReadError(f"{e}{hint}") from None
+            raise ReadError(f"{e}{self.hint(str(e))}") from None
         if self.comp.type == "tachyon" and self.comp.link:
             metrics.extend(self._remote(metrics, now))
         return metrics, info
+
+    def hint(self, msg: str) -> str:
+        """What to change, after a failed read's message (0.9.8). Names the secrets.env entry, never its value.
+        v2c: a wrong community gets no answer at all, and a device with SNMPv2 off (v3 only) may refuse instead."""
+        no_answer = "no SNMP answer" in msg
+        if self.version == "3":
+            return " - check the SNMP login and that UDP 161 is allowed from this server" if no_answer else ""
+        refused = any(w in msg for w in REFUSED)
+        if not (no_answer or refused):
+            return ""
+        ref = self.refs.get("snmp_community_ref") or "its community entry"
+        if refused:
+            text = (f" - the device refused the read: SNMPv2 is off on it (v3 only?) or its community is not "
+                    f"the value of {ref} in secrets.env")
+        else:
+            text = (f" - SNMP or SNMPv2 is off on it, its community is not the value of {ref} (a wrong community "
+                    f"gets no answer), or UDP 161 is blocked from this server")
+        if self.comp.type == "tachyon":
+            text += (". On the Tachyon's SNMP settings: SNMPv2 on (v3 can stay on - the dashboard reads Tachyons "
+                     "with v2), Community = that value.")
+        return text
 
     def _remote(self, metrics: list[Metric], now: float) -> list[Metric]:
         """The other end of the 60 GHz link hears us at this level (both ends are read)."""

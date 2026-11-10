@@ -7,6 +7,14 @@ networkguru.__version__ - release.py refuses to package otherwise).
 """
 
 CHANGES = [
+    ("0.9.8", "2026-11-10", [
+        "A Tachyon or switch that will not give its values now says what to change on it. 'Refused' means SNMPv2 is "
+        "off on it (v3 only) or its community is not the one in secrets.env; 'no answer' adds that SNMP may be off "
+        "or UDP 161 blocked. A Tachyon's page says to turn SNMPv2 on in its SNMP settings - the dashboard reads "
+        "Tachyons with v2 (v3 can stay on).",
+        "Fixed: a device page kept showing an old 'read error' after the device was read fine again (seen on the "
+        "COW Cerbo: values shown, and a Modbus timeout from earlier still listed).",
+    ]),
     ("0.9.7", "2026-11-10", [
         "Vehicles straight from Mobius: every vehicle Mobius knows gets its own card, map pin and VCU / GNSS values by "
         "itself - no devices.xlsx row needed - with what Mobius says it is (type, make, model, IP, MAC). Its IP is "

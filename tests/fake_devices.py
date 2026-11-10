@@ -35,11 +35,13 @@ def _value(tag: int, v) -> bytes:
 
 
 class FakeSnmpAgent(asyncio.DatagramProtocol):
-    """values: {oid: (tag, value)}. v2c with `community`; v3 with `users` {name: (auth pw, priv pw)}."""
+    """values: {oid: (tag, value)}. v2c with `community`; v3 with `users` {name: (auth pw, priv pw)}.
+    refuse_v2: every v2c request is answered noAccess on item 1 (a Tachyon with SNMPv2 off, 0.9.8)."""
 
-    def __init__(self, values: dict, community: str = "public", users: dict | None = None):
+    def __init__(self, values: dict, community: str = "public", users: dict | None = None, refuse_v2: bool = False):
         self.values = values
         self.community = community.encode()
+        self.refuse_v2 = refuse_v2
         self.users = {u.encode(): (S.localize_key(S.password_to_key(a), self.engine),
                                    S.localize_key(S.password_to_key(p), self.engine)[:16])
                       for u, (a, p) in (users or {}).items()}
@@ -105,6 +107,11 @@ class FakeSnmpAgent(asyncio.DatagramProtocol):
         if version in (0, 1):
             if top[1].bytes_(data) != self.community:
                 return None                                   # a wrong community gets no answer at all
+            if self.refuse_v2:
+                _k, rid, _a, _b, binds = S.parse_pdu(data[top[2].start:top[2].b])
+                no = S.tlv(S.RESPONSE, S.enc_int(rid) + S.enc_int(6) + S.enc_int(1)
+                           + S.seq(*(S.seq(S.enc_oid(o), S.tlv(S.NULL, b"")) for o, _t, _v in binds)))
+                return S.seq(S.enc_int(version), S.tlv(S.OCTETS, self.community), no)
             return S.seq(S.enc_int(version), S.tlv(S.OCTETS, self.community), self._answer(data[top[2].start:top[2].b]))
         p = S.parse_v3(data)
         etime = int(time.monotonic() - self.t0)
