@@ -71,13 +71,19 @@ function vehicleCard(g, nav) {
   ];
   const mp = miniPath(vehicleHops(g.id));
   c.el.append(h("div", { class: "kv" }, cells.map((x) => x.el)), mp.el, c.hist, c.footEl);
-  setText(c.sub, [g.model, (g.access || "rajant") === "celona" ? "Celona LTE" : "Rajant mesh"].filter(Boolean).join(" · "));
+  const net = radio || !g.components.some((x) => x.type === "host") ? ((g.access || "rajant") === "celona" ? "Celona LTE" : "Rajant mesh") : null;
+  const sub = () => {                                  // + what Mobius says it is (0.9.7)
+    const id = store.mobiusVehicles?.groups?.[g.id];
+    return [id?.type, g.model || id?.model, net].filter(Boolean).join(" · ");
+  };
+  setText(c.sub, sub());
   return {
     ...c,
     footAuto: true,
     update() {
       cells.forEach((x) => x.update());
       mp.update();
+      setText(c.sub, sub());
     },
   };
 }

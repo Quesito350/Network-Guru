@@ -16,6 +16,8 @@ missing is "not set up": it is skipped, the device is still pinged.
 
 from __future__ import annotations
 
+import ipaddress
+import re
 import time
 
 from ..config import secret
@@ -204,6 +206,7 @@ class MobiusServerReader(_MobiusDb):
     def __init__(self, comp, inv):
         super().__init__(comp, inv)
         self.clients = MobiusClients()
+        self.conn_seeded = False
 
     async def read(self, now: float) -> tuple[list[Metric], dict]:
         ours = self.map.get("mobius_server") or {}
@@ -223,9 +226,32 @@ class MobiusServerReader(_MobiusDb):
                 spec = ours.get("mobius_clients")
                 if spec:
                     out.append(Metric("mobius_clients", float(await self._clients(c, spec))))
+                if ours.get("client_address"):
+                    await self._connections(c, ours["client_address"], ours.get("client_state"))
         except InfluxError as e:
             raise self.failed(c, e) from None
         return out, {}
+
+    async def _connections(self, c: InfluxClient, addr: dict, state: dict | None) -> None:
+        """The client connections (0.9.7): each address's newest connect / disconnect - a day back on the first
+        ask, then the last 5 minutes. Fields only: the user of a connection (a tag) is never asked for."""
+        fields = [addr["field"]] + ([state["field"]] if state and state["measurement"] == addr["measurement"]
+                                    and state["field"] != addr["field"] else [])
+        window = "5m" if self.conn_seeded else "24h"
+        rows = await c.query(f"SELECT {', '.join(q_ident(f) for f in fields)} FROM {q_ident(addr['measurement'])} "
+                             f"WHERE time > now() - {window} ORDER BY time DESC LIMIT 2000")
+        for ser in rows:
+            cols = ser.get("columns") or []
+            for v in ser.get("values") or []:
+                row = dict(zip(cols, v))
+                t = row.get("time")
+                ip = address_of(row.get(addr["field"]))
+                if not ip or not isinstance(t, (int, float)):
+                    continue
+                on = as_number(state, row.get(state["field"])) if len(fields) > 1 else 1.0
+                self.clients.connection(ip, (on or 0.0) >= 0.5, float(t))
+        self.conn_seeded = True
+        self.clients.forget_old()
 
     async def _clients(self, c: InfluxClient, spec: dict) -> int:
         name_f = spec["field"]
@@ -250,6 +276,19 @@ class MobiusServerReader(_MobiusDb):
             self.clients.seen(name, t, {k: x for k, x in got.items() if x is not None})
         self.clients.forget_old()
         return len(newest)
+
+
+_IPV4 = re.compile(r"(?<![\d.])(\d{1,3}(?:\.\d{1,3}){3})(?![\d.])")
+
+
+def address_of(text) -> str | None:
+    """The IPv4 address in a Mobius connection text (e.g. "address: ::ffff:10.0.0.9 port: 51234"), or None."""
+    for m in _IPV4.finditer(str(text or "")):
+        try:
+            return str(ipaddress.ip_address(m.group(1)))
+        except ValueError:
+            continue
+    return None
 
 
 def cell_kind(comp) -> str | None:

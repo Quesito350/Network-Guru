@@ -78,7 +78,21 @@ async def map_vehicles(request: Request):
     if fleet is None:
         return {"enabled": False, "vehicles": []}
     fleet.watch()                              # the Map is open: positions every few seconds (0.9.5)
-    return {"enabled": True, "every_s": TRACK_S, "vehicles": fleet.positions.public(fleet.vehicle_of)}
+    out = fleet.positions.public(fleet.vehicle_of)
+    for v in out:                              # what Mobius says it is (0.9.7)
+        info = fleet.identity.get(v["name"]) or {}
+        v.update({"type": info.get("type"), "model": info.get("model"), "ip": info.get("ip"),
+                  "simulated": fleet.simulated(v["name"])})
+    return {"enabled": True, "every_s": TRACK_S, "vehicles": out}
+
+
+@router.get("/mobius/vehicles")
+async def mobius_vehicles(request: Request):
+    """What Mobius says each vehicle is (0.9.7): per vehicle of the dashboard {name (in Mobius), ip, mac, make,
+    model, type, comms, last, simulated, auto (added from Mobius)}, and the ones with no vehicle (the
+    simulator's). Live mode with the map's `vehicle` values."""
+    mv = rt(request).mobius_vehicles
+    return {"enabled": True, **mv.public()} if mv is not None else {"enabled": False, "groups": {}, "others": []}
 
 
 @router.get("/meta")
@@ -113,8 +127,8 @@ async def mobius_clients(request: Request):
     r = rt(request)
     mc = r.mobius_clients
     if mc is None:
-        return {"enabled": False, "clients": [], "columns": []}
-    return {"enabled": True, "columns": mc.columns, "clients": mc.public(r.inv)}
+        return {"enabled": False, "clients": [], "columns": [], "connections": []}
+    return {"enabled": True, "columns": mc.columns, "clients": mc.public(r.inv), "connections": mc.public_connections()}
 
 
 @router.get("/mobius")

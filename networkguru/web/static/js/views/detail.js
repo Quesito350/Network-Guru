@@ -16,8 +16,12 @@ function groupFacts(g) {
   return () => {
     const f = [];
     if (g.tab === "vehicles") {
-      f.push(["Model", g.model], ["Network", (g.access || "rajant") === "celona" ? "Celona private LTE" : "Rajant mesh"],
-        ["Mobius asset", g.mobius_asset]);
+      const id = store.mobiusVehicles?.groups?.[g.id];               // what Mobius says it is (0.9.7)
+      const radio = g.components.some((c) => ["rajant", "cell_modem"].includes(c.type));
+      f.push(["Type", id && [id.type, id.make].filter(Boolean).join(" · ")], ["Model", g.model || id?.model],
+        ["Network", radio || !id ? ((g.access || "rajant") === "celona" ? "Celona private LTE" : "Rajant mesh") : null],
+        ["Mobius asset", g.mobius_asset], ["IP (Mobius)", id?.ip], ["MAC (Mobius)", id?.mac], ["Comms", id?.comms],
+        ["Added", id?.auto ? "from Mobius, by itself (not in devices.xlsx)" : null]);
       if (g.expected_online) f.push(["Expected online", g.expected_online]);
     } else {
       f.push(["Components", String(g.components.length)]);

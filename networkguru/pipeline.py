@@ -169,6 +169,7 @@ class Pipeline:
                             or self.inv.expected_online(gid, local))
             worst, reasons, hidden = Status.OK, [], []
             counts: dict[str, int] = {}
+            some_required = any(not c.optional for c in g.components)
             for c in g.components:
                 st = self.state[c.id]
                 status, why, sup = self._effective(c, st, now, sev_critical, down)
@@ -183,6 +184,8 @@ class Pipeline:
                     st.version = self.version
                 points.append(("status", {**self.site_labels, "comp": c.id, "type": c.type}, int(status), now))
                 counts[status.name.lower()] = counts.get(status.name.lower(), 0) + 1
+                if c.optional and status == Status.OFFLINE and some_required:
+                    continue                     # e.g. a vehicle's Mobius IP not answering: the VCU says if it runs
                 if status > worst:
                     worst, reasons = status, []
                 if status == worst and status > Status.OK and not sup:

@@ -20,10 +20,16 @@ first start (FIRST_WINDOW when InfluxDB refuses that).
 While someone has the Map open (0.9.5: `watch()`, from /api/map/vehicles), the runtime also calls
 `poll_positions()` every few seconds: only the position table(s), the last FAST_WINDOW, so a vehicle moves
 on the map as it drives. It never gives a status - poll() does, every `interval`.
+
+0.9.7: what each vehicle is - the map's `vehicle` text values (IP, MAC, make, model, type, comms), newest per
+vehicle tag, asked at most every IDENTITY_EVERY_S - goes to `identity`; mobius_vehicles.py turns the vehicles
+not in the inventory into vehicles of their own. `extend()` takes on their components while running.
 """
 
 from __future__ import annotations
 
+import ipaddress
+import logging
 import re
 import time
 
@@ -31,7 +37,9 @@ from ..config import secret
 from ..model import CompResult, Metric
 from ..positions import VehiclePositions
 from .influx import InfluxClient, InfluxError, find_database, forget_database, q_ident
-from .mobius_map import LINK, as_number, map_tables, mobius_map
+from .mobius_map import LINK, VEHICLE_INFO, as_number, map_tables, mobius_map
+
+log = logging.getLogger("networkguru.drivers")
 
 STALE_S = 60.0
 QUIET_LINK_S = 600.0        # link true, but nothing at all from the vehicle for this long: quiet after all
@@ -43,10 +51,36 @@ FAST_WINDOW = "30s"         # poll_positions(): the map's quick read
 WATCH_S = 60.0              # ... while the Map was open this recently
 INFO_KEYS = ("lat", "lon")
 ALWAYS = {("vcu", LINK), ("gnss", "lat"), ("gnss", "lon")}     # read even without such a component (the map)
+IDENTITY_EVERY_S = 600.0    # what a vehicle is changes seldom (0.9.7)
+IDENTITY_WINDOW = "24h"
+UNKNOWN = {"", "unknown", "none", "null", "n/a", "-"}
+ZERO_MAC = re.compile(r"0{1,2}([-:.]0{1,2}){5}")
 
 
 def norm(name) -> str:
     return re.sub(r"[^a-z0-9]", "", str(name or "").lower())
+
+
+def clean_text(v) -> str | None:
+    """A Mobius text value as shown: trimmed, at most 80 characters, None for "unknown" and empties."""
+    if v is None or isinstance(v, bool):
+        return None
+    t = str(v).strip()[:80]
+    return None if t.lower() in UNKNOWN else t
+
+
+def ipv4(v) -> str | None:
+    try:
+        ip = ipaddress.ip_address(str(v or "").strip())
+    except ValueError:
+        return None
+    return str(ip) if ip.version == 4 and not ip.is_unspecified else None
+
+
+def simulated(name: str, info: dict) -> bool:
+    """A Mobius simulator vehicle: a SIM_ name, a loopback IP or an all-zero MAC (0.9.7)."""
+    ip = info.get("ip") or ""
+    return str(name).upper().startswith("SIM_") or ip.startswith("127.") or bool(info.get("zero_mac"))
 
 
 def ago(seconds: float) -> str:
@@ -73,7 +107,28 @@ class MobiusPoller:
         self.by_group: dict[tuple[str, str], str] = {}           # (group id, type) -> component id
         self.exact: dict[str, str] = {}                           # Mobius asset name -> group id
         self.loose: dict[str, str] = {}                           # the same, normalised
-        for c in comps:
+        self._link(inv)
+        # (table, vehicle tag) -> {field: [(type, our name, spec)]}; the link and the position are read
+        # even without a VCU / GNSS component
+        self.tables: dict[tuple[str, str], dict[str, list]] = {}
+        self.long_first: set[tuple[str, str]] = set()
+        self._build_tables()
+        self.table_names = map_tables(self.map)
+        # what each vehicle is (0.9.7): {name: {ip, mac, make, model, type, comms, zero_mac, t}}
+        self.info_specs = {ours: spec for ours, spec in (self.map.get("vehicle") or {}).items() if ours in VEHICLE_INFO}
+        self.identity: dict[str, dict] = {}
+        self.identity_at = -1e18
+        self.identity_seeded = False
+        self.coords: dict[str, dict[str, tuple[float, float]]] = {}     # vehicle name -> {lat / lon: (time, value)}
+        self.seeded: set[tuple[str, str]] = set()
+        self.last: dict[tuple[str, str], tuple[float, float]] = {}     # (group id, our name) -> (time, value)
+        self.heard: dict[str, float] = {}                              # group id -> newest point of any table
+        self.watched_until = 0.0                                       # the Map is open (poll_positions)
+
+    def _link(self, inv) -> None:
+        """Mobius names -> groups: each component's group, and every vehicle (the map matches them all)."""
+        self.exact, self.loose = {}, {}
+        for c in self.comps:
             gid = self.group_of[c.id]
             self.by_group.setdefault((gid, c.type), c.id)
             g = inv.groups[gid]
@@ -81,31 +136,42 @@ class MobiusPoller:
                 if n:
                     self.exact.setdefault(str(n), gid)
                     self.loose.setdefault(norm(n), gid)
-        for g in inv.groups.values():                              # the map matches every vehicle
+        for g in inv.groups.values():
             if inv.group_tab.get(g.id) == "vehicles":
                 for n in (g.mobius_asset, g.name):
                     if n:
                         self.exact.setdefault(str(n), g.id)
                         self.loose.setdefault(norm(n), g.id)
-        # (table, vehicle tag) -> {field: [(type, our name, spec)]}; the link and the position are read
-        # even without a VCU / GNSS component
+
+    def _build_tables(self) -> None:
         types = set(self.type_of.values())
-        self.tables: dict[tuple[str, str], dict[str, list]] = {}
-        self.long_first: set[tuple[str, str]] = set()
+        tables: dict[tuple[str, str], dict[str, list]] = {}
         for typ, values in self.map.items():
             for ours, spec in values.items():
                 if typ not in types and (typ, ours) not in ALWAYS:
                     continue
                 key = (spec["measurement"], spec.get("asset_tag") or self.default_tag)
-                self.tables.setdefault(key, {}).setdefault(spec["field"], []).append((typ, ours, spec))
+                tables.setdefault(key, {}).setdefault(spec["field"], []).append((typ, ours, spec))
                 if typ == "gnss" and ours in INFO_KEYS:
                     self.long_first.add(key)
-        self.table_names = map_tables(self.map)
-        self.coords: dict[str, dict[str, tuple[float, float]]] = {}     # vehicle name -> {lat / lon: (time, value)}
-        self.seeded: set[tuple[str, str]] = set()
-        self.last: dict[tuple[str, str], tuple[float, float]] = {}     # (group id, our name) -> (time, value)
-        self.heard: dict[str, float] = {}                              # group id -> newest point of any table
-        self.watched_until = 0.0                                       # the Map is open (poll_positions)
+        self.tables = tables
+
+    def extend(self, inv, comps: list) -> list[str]:
+        """More Mobius components while running (a vehicle added from Mobius, 0.9.7): this reader reads them
+        too - no second reader. Returns the new component ids."""
+        self.inv = inv
+        new = [c for c in comps if c.id not in self.type_of]
+        for c in new:
+            self.comps.append(c)
+            self.comp_ids.append(c.id)
+            self.type_of[c.id] = c.type
+            self.group_of[c.id] = inv.comp_group[c.id]
+        self._link(inv)
+        self._build_tables()                # a type it had no component of yet: its tables, first ask a day back
+        return [c.id for c in new]
+
+    def simulated(self, name: str) -> bool:
+        return simulated(name, self.identity.get(name) or {})
 
     def _when(self, window: str) -> str:
         return f"time > now() - {window}"
@@ -175,6 +241,8 @@ class MobiusPoller:
                     self.seeded.add(key)
                     for s in rows:
                         self._take(tag, s, fields)
+                if self.info_specs and self._now() - self.identity_at >= IDENTITY_EVERY_S:
+                    await self._identity(c)
         except InfluxError as e:
             self.seeded.clear()                     # after the outage, look back again
             forget_database(self.url)
@@ -182,6 +250,47 @@ class MobiusPoller:
         finally:
             self.positions.save()
         return [self._result(cid, now) for cid in self.comp_ids]
+
+    async def _identity(self, c: InfluxClient) -> None:
+        """What each vehicle is, from the map's `vehicle` text values (0.9.7). A refused or slow ask is tried
+        again later - never a reason to fail the poll."""
+        by_table: dict[tuple[str, str], dict[str, str]] = {}
+        for ours, spec in self.info_specs.items():
+            key = (spec["measurement"], spec.get("asset_tag") or self.default_tag)
+            by_table.setdefault(key, {})[ours] = spec["field"]
+        window = LONG_WINDOW if not self.identity_seeded else IDENTITY_WINDOW
+        try:
+            for (table, tag), wanted in by_table.items():
+                fields = sorted(set(wanted.values()))
+                q = (f"SELECT {', '.join(q_ident(f) for f in fields)} FROM {q_ident(table)} WHERE {self._when(window)}"
+                     f" GROUP BY {q_ident(tag)} ORDER BY time DESC LIMIT 1")
+                try:
+                    rows = await c.query(q, timeout=LONG_TIMEOUT_S)
+                except InfluxError:
+                    if window == IDENTITY_WINDOW:
+                        raise
+                    rows = await c.query(q.replace(self._when(window), self._when(IDENTITY_WINDOW)))
+                for ser in rows:
+                    name = str((ser.get("tags") or {}).get(tag, ""))
+                    if not name or not ser.get("values"):
+                        continue
+                    row = dict(zip(ser.get("columns") or [], ser["values"][0]))
+                    e = self.identity.setdefault(name, {})
+                    if isinstance(row.get("time"), (int, float)):
+                        e["t"] = max(float(row["time"]), e.get("t", 0.0))
+                    for ours, field in wanted.items():
+                        key = ours[len("vehicle_"):]
+                        raw = row.get(field)
+                        if key == "mac" and raw is not None and ZERO_MAC.fullmatch(str(raw).strip()):
+                            e["zero_mac"] = True
+                            continue
+                        v = ipv4(raw) if key == "ip" else clean_text(raw)
+                        if v:
+                            e[key] = v
+            self.identity_seeded = True
+        except InfluxError as e:
+            log.warning("Mobius vehicle identity not read (%s) - trying again in %.0f min", e, IDENTITY_EVERY_S / 60)
+        self.identity_at = self._now()
 
     def _take(self, tag: str, s: dict, fields: dict[str, list]) -> None:
         name = str((s.get("tags") or {}).get(tag, ""))

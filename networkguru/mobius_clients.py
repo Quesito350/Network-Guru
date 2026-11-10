@@ -6,6 +6,9 @@ mobius_server / mobius_clients - one row per client and moment, the PC's name in
 values the map gives for the type mobius_client (CPU, memory, disk, frame rate, uptime). A PC is
 connected while it wrote in the last CONNECTED_S (as the server card's count); one unseen for FORGET_S
 is dropped. Memory only: the names never go into files or problem reports.
+
+0.9.7: the client connections - the map's mobius_server client_address / client_state, one row per connect and
+disconnect - kept per address: connected or not, and since when. Never the user (a person) of a connection.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ class MobiusClients:
         self.clock = clock
         self.data: dict[str, dict] = {}            # PC name -> {"t": newest point, "values": {metric: value}}
         self.columns: list[str] = []               # the map's mobius_client values, in its order
+        self.connections: dict[str, dict] = {}     # address -> {"connected": bool, "t": its newest event}
 
     def seen(self, name: str, t: float, values: dict[str, float]) -> None:
         e = self.data.setdefault(str(name), {"t": 0.0, "values": {}})
@@ -33,9 +37,22 @@ class MobiusClients:
             e["t"] = t
             e["values"].update(values)
 
+    def connection(self, address: str, connected: bool, t: float) -> None:
+        e = self.connections.get(address)
+        if e is None or t >= e["t"]:
+            self.connections[address] = {"connected": bool(connected), "t": float(t)}
+
     def forget_old(self, now: float | None = None) -> None:
         now = self.clock() if now is None else now
         self.data = {n: e for n, e in self.data.items() if now - e["t"] <= FORGET_S}
+        self.connections = {a: e for a, e in self.connections.items() if now - e["t"] <= FORGET_S}
+
+    def public_connections(self, now: float | None = None) -> list[dict]:
+        """[{address, connected, since}] - connected first, newest first."""
+        now = self.clock() if now is None else now
+        out = [{"address": a, "connected": e["connected"], "since": e["t"]} for a, e in self.connections.items()
+               if now - e["t"] <= FORGET_S]
+        return sorted(out, key=lambda x: (not x["connected"], -x["since"]))
 
     def public(self, inv, now: float | None = None) -> list[dict]:
         """[{name, connected, last, values, group}] - connected first, then by name. `group`: the inventory desk
@@ -56,4 +73,5 @@ class MobiusClients:
         """For the problem report - never a name."""
         now = self.clock() if now is None else now
         return {"seen": sum(1 for e in self.data.values() if now - e["t"] <= FORGET_S),
-                "connected": sum(1 for e in self.data.values() if now - e["t"] <= CONNECTED_S)}
+                "connected": sum(1 for e in self.data.values() if now - e["t"] <= CONNECTED_S),
+                "connections_open": sum(1 for e in self.connections.values() if e["connected"])}

@@ -60,7 +60,7 @@ def test_the_server_reader_lists_every_client():
     later = {c["name"]: c for c in r.clients.public(inv, now + CONNECTED_S)}    # nothing new since: last seen
     assert not later["PC-1"]["connected"] and later["PC-1"]["last"] == now - 30
     assert r.clients.public(inv, now + FORGET_S + 60) == []                     # a day unseen: dropped
-    assert r.clients.counts(now) == {"seen": 2, "connected": 2}
+    assert r.clients.counts(now) == {"seen": 2, "connected": 2, "connections_open": 0}
 
 
 def test_without_client_values_the_names_still_list():
@@ -80,7 +80,7 @@ def test_the_api():
     body = asyncio.run(mobius_clients(req(SimpleNamespace(mobius_clients=mc, inv=inv))))
     assert body["enabled"] and body["columns"] == ["host_cpu_pct"] and body["clients"][0]["values"] == {"host_cpu_pct": 12.0}
     assert asyncio.run(mobius_clients(req(SimpleNamespace(mobius_clients=None, inv=inv)))) == \
-        {"enabled": False, "clients": [], "columns": []}
+        {"enabled": False, "clients": [], "columns": [], "connections": []}
 
 
 def test_mobius_client_rows_in_the_sheet(tmp_path):

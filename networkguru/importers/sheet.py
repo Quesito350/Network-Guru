@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..catalog import TYPES
+from ..drivers.mobius_map import TEXT_VALUES
 
 SITE_COLS = ["Site", "Name", "Time zone", "Lat", "Lon", "Mobius InfluxDB URL", "Mobius database", "Mobius vehicle tag",
              "Netmaker URL", "Subnets", "Infrastructure subnet", "Notes"]
@@ -23,9 +24,10 @@ GROUP_COLS = ["Site", "Group", "Kind", "Mobius asset", "Netmaker host", "Access"
 DEVICE_COLS = ["Site", "Group", "Type", "Name", "Model", "Serial", "MAC", "Address", "IP", "API address", "Link",
                "Role", "Install RSSI", "Switch port", "Firmware", "Monitor", "Modbus unit", "Notes"]
 MAP_COLS = ["Site", "Type", "Value", "Mobius table", "Field", "Text values", "Notes"]
-MOBIUS_TYPES = ["vcu", "gnss", "vai", "mobius_ntrip", "mobius_server", "influxdb", "mobius_client"]
-MOBIUS_VALUES = sorted({s.metric for t in MOBIUS_TYPES for ch in TYPES[t].charts for s in ch.series
-                        if s.metric not in ("tcp_ms", "ping_rtt_ms", "ping_loss_pct", "mobius_up")} | {"lat", "lon"})
+MOBIUS_TYPES = ["vcu", "gnss", "vai", "mobius_ntrip", "mobius_server", "influxdb", "mobius_client", "vehicle"]
+MOBIUS_VALUES = sorted({s.metric for t in MOBIUS_TYPES if t in TYPES for ch in TYPES[t].charts for s in ch.series
+                        if s.metric not in ("tcp_ms", "ping_rtt_ms", "ping_loss_pct", "mobius_up")} | {"lat", "lon"}
+                       | {v for vs in TEXT_VALUES.values() for v in vs})
 KINDS = ["vehicle", "trailer", "cow", "tower", "building", "repeater", "core", "server", "client"]
 LISTS = {"Kind": KINDS, "Type": sorted(TYPES), "Address": ["static", "dhcp"], "Role": ["master", "slave"],
          "Monitor": ["yes", "no"], "Has VAI": ["yes", "no"], "Access": ["rajant", "celona"]}
@@ -56,7 +58,12 @@ README = [
     "  true), mobius_clients = a table + field whose different values in the last 5 minutes are the clients.",
     "  influxdb: influx_write_age_s = a table Mobius writes all the time (its newest point = the data age).",
     "  mobius_client: host_cpu_pct, host_mem_used_pct, host_disk_used_pct, client_fps, client_uptime_s = fields of",
-    "  the mobius_clients table, shown per PC in the Control Room's list of Mobius clients.",
+    "  the mobius_clients table, shown per PC in the Control Room's list of Mobius clients. client_address +",
+    "  client_state (type mobius_server): the client connections table - the address field and Connected /",
+    "  Disconnected (Text values Connected=1, *=0).",
+    "  vehicle: vehicle_ip, vehicle_mac, vehicle_make, vehicle_model, vehicle_type, vehicle_comms = what each Mobius",
+    "  vehicle is (text, per vehicle tag). Mobius vehicles not in this sheet then get their own cards by themselves,",
+    "  their IP pinged; a vehicle here whose device address is that IP is the same vehicle.",
     "",
     "WireGuard (Netmaker): put the gateway's API address in Sites > Netmaker URL (e.g. https://api.example.com) and,",
     "  on each vehicle / location that has a tunnel, its host name as Netmaker shows it in Groups > Netmaker host.",

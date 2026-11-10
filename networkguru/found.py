@@ -65,6 +65,7 @@ def merge_added(raw: dict, entries: list[dict]) -> tuple[dict, list[dict], list[
     for e in entries:
         c = dict(e.get("component") or {})
         if not c.get("id") or not c.get("type"):
+            _fill_group(raw, e)                     # a Mobius link: the vehicle's Mobius name (0.9.7)
             kept.append(e)
             continue
         dup = (c.get("serial") and str(c["serial"]).strip().lower() in serials) or \
@@ -83,11 +84,27 @@ def merge_added(raw: dict, entries: list[dict]) -> tuple[dict, list[dict], list[
             if gid in ids:                          # the id is used on another tab
                 continue
             g = {"id": gid, "name": e["group"].get("name") or gid, "kind": e["group"].get("kind") or "", "components": []}
+            g.update({k: e["group"][k] for k in GROUP_FIELDS if e["group"].get(k)})
             groups.append(g)
             ids.add(gid)
+        else:
+            _fill_group(raw, e)
         (g["components"] if "components" in g else g.setdefault("devices", [])).append(c)
         ids.add(c["id"])
     return raw, kept, removed
+
+
+GROUP_FIELDS = ("mobius_asset", "model")       # what an entry may give a group (vehicles from Mobius, 0.9.7)
+
+
+def _fill_group(raw: dict, e: dict) -> None:
+    """An entry's group fields the site inventory leaves empty (it always wins where it has them)."""
+    grp = e.get("group") or {}
+    g = next((x for x in raw.get(TAB_KEYS.get(e.get("tab"), "infrastructure")) or [] if x.get("id") == grp.get("id")), None)
+    if g is not None:
+        for k in GROUP_FIELDS:
+            if grp.get(k) and not g.get(k):
+                g[k] = grp[k]
 
 
 def apply_overlay(inv, overlay: dict) -> tuple[dict, list[str]]:
@@ -108,15 +125,20 @@ def apply_overlay(inv, overlay: dict) -> tuple[dict, list[str]]:
     return keep, notes
 
 
-def load_site_inventory(path, data_dir, added: StateFile | None = None):
+def load_site_inventory(path, data_dir, added: StateFile | None = None, mobius=None):
     """(inventory, the addresses the files gave each device, changes) - live mode's inventory. Added devices
     the inventory has itself now and followed addresses it overrides are dropped from their files; `changes`
-    says which, for the Events list. `added`: the Discovery's own added.json (so it never writes them back)."""
+    says which, for the Events list. `added`: the Discovery's own added.json (so it never writes them back).
+    `mobius`: the vehicles straight from Mobius (mobius_vehicles.MobiusVehicles, 0.9.7)."""
     added = added or _state(data_dir, "added.json", {"entries": []})
     entries = added.get("entries") or []
     raw, kept, changes = merge_added(load_raw(path), entries)
     if len(kept) != len(entries):
         added.update(entries=kept)
+    if mobius is not None:
+        more, lines = mobius.entries(raw)
+        raw, _kept, _gone = merge_added(raw, more)
+        changes = changes + lines
     inv = parse_inventory(raw, str(path))
     base = {cid: c.host for cid, c in inv.comps.items()}
     ov = _state(data_dir, "addresses.json")
@@ -292,7 +314,7 @@ class Discovery:
         entries.append({"key": key, "tab": tab, "group": group, "component": comp, "ts": time.time(), "by": who})
         self.added.update(entries=entries)
         new_inv, base_hosts, changes = load_site_inventory(self.rt.settings.inventory, self.rt.settings.data_dir,
-                                                           added=self.added)
+                                                           added=self.added, mobius=self.rt.mobius_vehicles)
         if cid not in new_inv.comps:
             self.added.update(entries=[e for e in self.added.get("entries") or []
                                        if (e.get("component") or {}).get("id") != cid])

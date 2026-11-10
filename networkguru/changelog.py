@@ -7,6 +7,19 @@ networkguru.__version__ - release.py refuses to package otherwise).
 """
 
 CHANGES = [
+    ("0.9.7", "2026-11-10", [
+        "Vehicles straight from Mobius: every vehicle Mobius knows gets its own card, map pin and VCU / GNSS values by "
+        "itself - no devices.xlsx row needed - with what Mobius says it is (type, make, model, IP, MAC). Its IP is "
+        "pinged. A vehicle devices.xlsx already has is linked instead - by its Mobius name, or because one of its "
+        "devices has the same IP (Events says which). The Mobius simulator's vehicles are left out.",
+        "A vehicle's page shows its Mobius type, model, IP and MAC; the cards show its type and model, and so does "
+        "the map when you hover.",
+        "Fit the site fills the window with the site: a vehicle whose last GPS position is far away (often a bad fix) "
+        "no longer zooms the map out - it is listed under 'Far from the site'. The map opens the same way.",
+        "The Mobius simulator's vehicles are a map layer of their own, off unless you switch it on.",
+        "Mobius clients: the list also shows the client connections - each address that connected to Mobius in the "
+        "last day, connected or since when it is not.",
+    ]),
     ("0.9.6", "2026-11-06", [
         "Fixed: false 'Ping RTT' and 'TCP connect' alarms (the Mobius Server and every other device read 1-2 s when "
         "they answer in a few ms). The server held itself up for up to seconds at a time - setting up each "

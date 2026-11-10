@@ -35,6 +35,8 @@ class Component(BaseModel):
     depends_on: str | None = None      # upstream component id (default worked out below)
     uplink: bool = False               # this device carries the location's traffic
     critical: bool = True              # False = can never make its group worse than Warning
+    optional: bool = False             # True = its Offline never makes its group Offline (a vehicle's Mobius IP,
+                                       # 0.9.7: the vehicle may be up on a network the dashboard cannot ping)
     checks: list[str] = Field(default_factory=list)      # e.g. ["tcp:2101"]
     rules: dict[str, dict[str, Any]] = Field(default_factory=dict)   # per-metric threshold overrides
     sim: dict[str, Any] = Field(default_factory=dict)    # simulator knobs (ignored on real devices)

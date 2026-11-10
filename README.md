@@ -124,6 +124,7 @@ python run.py build-inventory ..\sites\devices.xlsx --site mendon --out ..\sites
   - a device that answers nothing for 3 polls is Offline; the existing "Unreachable via" logic works as with the simulator
   - the device readers (below) add the devices' own values
   - the site firewall must let the server ping the device networks; when ICMP is filtered, the port checks still count
+- **Vehicles from Mobius** (0.9.7): every vehicle Mobius knows gets its own card, pin and VCU / GNSS values by itself, with its Mobius type, model, IP (pinged) and MAC - no devices.xlsx row needed. A vehicle devices.xlsx has is linked by its Mobius name or by a device with the same IP; the Mobius simulator's vehicles are left out (a map layer, off). Needs the Mobius map's `vehicle` rows.
 - **Map layers** (0.9.6): the **Layers** button, top left on the map, switches each kind of place, running / parked / grey vehicles, the 60 GHz links, the vehicle trails and the names on or off; each browser remembers its own choice.
 - **Mobius clients** (0.9.6): the Control Room tab and the Mobius Server's page list every client PC Mobius reports, with its CPU, memory, disk, frame rate and Mobius uptime (values from the Mobius map's `mobius_client` rows).
 - **Server speed** (0.9.6): **Admin → Server speed** shows how often the server was held up; ping and port times measured meanwhile are left out instead of raising latency alarms.

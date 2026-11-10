@@ -29,12 +29,10 @@ export function clientsPanel(nav) {
     const on = d.clients.filter((c) => c.connected).length;
     setText(hint, `${on} connected`);
     clear(body);
-    if (!d.clients.length) {
-      body.append(h("p", { class: "muted", text: "Mobius has reported no client PC in the last 5 minutes." }));
-      return;
-    }
+    const conns = d.connections || [];
+    if (!d.clients.length) body.append(h("p", { class: "muted", text: "Mobius has reported no client PC in the last 5 minutes." }));
     const cols = d.columns || [];
-    body.append(h("div", { class: "panel table-scroll" }, h("table", { class: "comps clients" },
+    if (d.clients.length) body.append(h("div", { class: "panel table-scroll" }, h("table", { class: "comps clients" },
       h("thead", {}, h("tr", {}, ...["PC", "Mobius", ...cols.map((k) => metricSpec(k).label)].map((t) => h("th", { text: t })))),
       h("tbody", {}, d.clients.map((c) => {
         const g = c.group && store.groups[c.group];
@@ -46,6 +44,17 @@ export function clientsPanel(nav) {
       h("p", { class: "muted small", text: "Every client PC Mobius reports, from the Mobius InfluxDB. To give a PC its own card "
         + "and alarms, add it as a desk in devices.xlsx (Groups: Kind client; Devices: Type mobius_client, with the PC's "
         + "name as shown here as its Name or Hostname), then rebuild the inventory." }));
+    if (conns.length) {                                // the connections to the Mobius server, by address (0.9.7)
+      const open = conns.filter((x) => x.connected).length;
+      body.append(h("h3", { class: "mob-h3", text: `Client connections (${open} connected)` }),
+        h("div", { class: "panel table-scroll" }, h("table", { class: "comps clients" },
+          h("thead", {}, h("tr", {}, ...["Address", "Connection"].map((t) => h("th", { text: t })))),
+          h("tbody", {}, conns.map((x) => h("tr", {}, h("td", { class: "num", text: x.address }),
+            h("td", {}, dot(x.connected ? 0 : 2), " ", x.connected ? `Connected since ${fmtWhen(x.since)}`
+              : `Disconnected ${fmtWhen(x.since)}`)))))),
+        h("p", { class: "muted small", text: "Where Mobius clients connected from in the last day, from the Mobius InfluxDB. "
+          + "Mobius does not say which PC an address is; an address can be a VPN or a router in front of several PCs." }));
+    }
   }
 
   return {

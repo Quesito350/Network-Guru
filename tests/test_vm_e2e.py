@@ -100,8 +100,9 @@ def _run_app(vm, data_dir, fresh=False):
         assert c.get("/api/meta").json()["tsdb"] == "victoriametrics"
         flush(vm)
         now = time.time()
-        soc = c.get("/api/history/charts/t48-gx", params={"from": now - 86400, "to": now, "keys": "soc"}).json()
-        points = len(soc[0]["series"][0]["points"])
+        # a mains-powered radio: a trailer's Cerbo goes dark on a flat battery on short winter days (the simulator)
+        rtt = c.get("/api/history/charts/bldg-north-bc", params={"from": now - 86400, "to": now, "keys": "rtt"}).json()
+        points = len(rtt[0]["series"][0]["points"])
         span = (rt.progress.start, rt.progress.end)
     flush(vm)
     return span, points

@@ -83,6 +83,9 @@ def build(rt, who: str, note: str, browser: dict, secrets: list[dict], logs: str
         "Vehicle positions for the map (counts only, never positions): "
         + (", ".join(f"{k} {v}" for k, v in rt.fleet.positions.counts(rt.fleet.vehicle_of).items())
            if getattr(rt, "fleet", None) else "not read (no Mobius map)"),
+        "Vehicles from Mobius (counts only, never names or addresses): "
+        + (", ".join(f"{k} {v}" for k, v in rt.mobius_vehicles.counts().items())
+           if getattr(rt, "mobius_vehicles", None) else "not read"),
         "Mobius clients (counts only, never names): "
         + (", ".join(f"{k} {v}" for k, v in rt.mobius_clients.counts(now).items())
            if getattr(rt, "mobius_clients", None) else "not read"),

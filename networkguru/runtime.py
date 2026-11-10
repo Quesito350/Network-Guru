@@ -37,9 +37,14 @@ from .updates import UpdateManager
 log = logging.getLogger("networkguru")
 TRACK_S = 3.0               # the map's vehicle positions while it is open (0.9.5)
 STALL_NOTE = "The server was busy:"
+VEHICLES_EVERY_S = 60.0     # Mobius's vehicles compared with the inventory (0.9.7)
 STALL_NOTE_COUNT = 10
 TRACK_SLOW_S = 15.0
 DAY = 86400.0
+
+
+def _from_mobius(text: str) -> bool:
+    return text.startswith("Added from Mobius") or " in Mobius (" in text or "added from Mobius" in text
 
 
 class Runtime:
@@ -47,9 +52,13 @@ class Runtime:
         self.settings = settings
         self.mode = settings.mode
         self.inv_changes: list[str] = []       # for the Events list once it is open (start)
+        self.mobius_vehicles = None            # live mode: the vehicles straight from Mobius (0.9.7)
         if self.mode == "live":            # + devices added from the discovery scan, + followed addresses
             from .found import load_site_inventory
-            self.inv, self.base_hosts, self.inv_changes = load_site_inventory(settings.inventory, settings.data_dir)
+            from .mobius_vehicles import MobiusVehicles
+            self.mobius_vehicles = MobiusVehicles(settings.data_dir)
+            self.inv, self.base_hosts, self.inv_changes = load_site_inventory(settings.inventory, settings.data_dir,
+                                                                              mobius=self.mobius_vehicles)
         else:
             self.inv = load_inventory(settings.inventory)
             self.base_hosts = {cid: c.host for cid, c in self.inv.comps.items()}
@@ -97,7 +106,7 @@ class Runtime:
                 await self._wipe_sim_history(Path(db_path))
         self.events = EventStore(db_path)
         for text in self.inv_changes:        # an added device the inventory has now, a followed address it overrides
-            self.events.add_system_event(time.time(), "discovery", text)
+            self.events.add_system_event(time.time(), "mobius" if _from_mobius(text) else "discovery", text)
         self.pipeline = Pipeline(self.inv, self.rules, self.tsdb, self.events)
         self.history = History(self.inv, self.rules, self.tsdb, self.events)
         tz = self.pipeline.tz
@@ -139,6 +148,7 @@ class Runtime:
             self.tasks.append(asyncio.create_task(self.scheduler.run()))
             if self.fleet is not None:
                 self.tasks.append(asyncio.create_task(self._track_vehicles()))
+                self.tasks.append(asyncio.create_task(self._vehicles_from_mobius()))
             if self.inv.data.mobius.influx_url:       # everything else Mobius has, for the pages
                 from .drivers.mobius_explore import MobiusExplorer
                 self.mobius = MobiusExplorer(self.inv)
@@ -160,8 +170,20 @@ class Runtime:
         new = {cid for cid in inv.comps if cid not in old.comps}
         if new and self.scheduler is not None:
             pollers, unchecked, _notes = live_pollers(inv, self.can_ping, only=new)
+            if self.fleet is not None:                # the one Mobius reader takes them on (0.9.7)
+                for p in [p for p in pollers if isinstance(p, MobiusPoller)]:
+                    self.fleet.extend(inv, p.comps)
+                    pollers.remove(p)
             self.pipeline.unchecked.update(unchecked)
             self.scheduler.add(pollers)
+        if self.fleet is not None:
+            self.fleet.extend(inv, [])                # Mobius names given to vehicles (by IP) link up
+        if self.scheduler is not None:                # a device at a new address (a vehicle's Mobius IP): pinged there
+            for cid, c in inv.comps.items():
+                if cid in old.comps and c.host and c.host != old.comps[cid].host:
+                    p = self.scheduler.poller_of(cid)
+                    if p is not None and hasattr(p, "retarget"):
+                        p.retarget(c.host)
         self.pipeline.sweep()
         return sorted(new)
 
@@ -221,6 +243,27 @@ class Runtime:
         except Exception:  # noqa: BLE001
             log.exception("simulator stopped")
             self.notes.append("The simulator stopped with an error - see the server log.")
+
+    async def _vehicles_from_mobius(self) -> None:
+        """Every VEHICLES_EVERY_S: a vehicle Mobius knows that the dashboard has not got yet, or a new IP, and the
+        inventory is built again with it - its card, its Mobius values, its IP pinged - without a restart
+        (mobius_vehicles.py). Each change is one Events line."""
+        from .found import load_site_inventory
+        while True:
+            await asyncio.sleep(VEHICLES_EVERY_S)
+            try:
+                if not self.mobius_vehicles.update(self.fleet):
+                    continue
+                added = self.discovery.added if self.discovery is not None else None
+                inv, base, changes = load_site_inventory(self.settings.inventory, self.settings.data_dir, added=added,
+                                                         mobius=self.mobius_vehicles)
+                for text in changes:
+                    self.events.add_system_event(time.time(), "mobius" if _from_mobius(text) else "discovery", text)
+                self.swap_inventory(inv, base)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - never stop over one bad vehicle
+                log.exception("vehicles from Mobius not updated")
 
     async def _track_vehicles(self) -> None:
         """While someone has the Map open: the vehicles' positions every TRACK_S (MobiusPoller.poll_positions),

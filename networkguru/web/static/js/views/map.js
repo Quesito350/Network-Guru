@@ -11,6 +11,10 @@
 // live one draws a fading trail of its last 2 minutes. Only the vehicles move on each frame - not the tiles.
 // 0.9.6: layers - the Layers button (top left) switches each kind of place, running / parked / grey
 // vehicles, the 60 GHz links, the trails and the names on or off; this browser remembers the choice.
+// 0.9.7: hover shows what Mobius says a vehicle is (type, model, IP); the Mobius simulator's vehicles are a
+// layer of their own, off unless switched on.
+// 0.9.7: "Fit the site" (and the first view) fits the site area - around the located places - so a vehicle
+// whose last GPS fix is far away (a glitch) no longer zooms the map out; the side panel lists those.
 
 import { get } from "../api.js";
 import { h, s, setClass, setText } from "../dom.js";
@@ -37,6 +41,7 @@ const FOREIGN_MAX_AGE_S = 7 * 86400;     // a Mobius vehicle not in the inventor
 const FLEET_EVERY_MS = 3000;             // unless the server says otherwise (every_s)
 const GLIDE_MAX_M = 200;                 // a longer jump (GPS back after a gap) moves at once
 const TURN_M = 2;                        // the simulator's vehicles: moved this far = a new heading
+const SITE_MIN_KM = 2;                   // the site area: at least this far around the places' middle
 
 const glyphOf = (kind) => GLYPH[kind] || (kind === "server" || kind === "client" ? GLYPH.core : GLYPH.other);
 const located = (g) => typeof g.lat === "number" && typeof g.lon === "number";
@@ -50,12 +55,14 @@ const PLACE_TEXT = { trailer: "Trailers", tower: "Towers", building: "Buildings"
   core: "Network core", server: "Servers", client: "Desks", other: "Other places" };
 const placeLayer = (g) => `place:${PLACE_TEXT[g.kind] ? g.kind : "other"}`;
 
-function layersOff() {
+const DEFAULT_OFF = new Set(["simulated"]);           // layers that are off until switched on
+
+function layersSaved() {
   try {
     const x = JSON.parse(lsGet(LAYERS_KEY) || "null");
-    if (x && Array.isArray(x.off)) return new Set(x.off.map(String));
-  } catch { /* unreadable: everything on */ }
-  return new Set(lsGet("ng_map_hide_parked") === "1" ? ["parked"] : []);
+    if (x && Array.isArray(x.off)) return { off: new Set(x.off.map(String)), on: new Set((x.on || []).map(String)) };
+  } catch { /* unreadable: the defaults */ }
+  return { off: new Set(lsGet("ng_map_hide_parked") === "1" ? ["parked"] : []), on: new Set() };
 }
 const calm = () => { try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
 
@@ -74,6 +81,13 @@ export function mapView(root, nav) {
   const groups = Object.values(store.groups);
   const vehicles = groups.filter((g) => g.tab === "vehicles");
   const places = groups.filter((g) => g.tab !== "vehicles" && located(g));
+  const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+  const site = store.inv.site;
+  const centre = places.length ? { lat: median(places.map((g) => g.lat)), lon: median(places.map((g) => g.lon)) }
+    : typeof site.lat === "number" && typeof site.lon === "number" ? { lat: site.lat, lon: site.lon } : null;
+  const kmFrom = (p) => (centre ? Math.hypot(...metres(centre, p)) / 1000 : 0);
+  const siteKm = Math.max(SITE_MIN_KM, 1.5 * Math.max(0, ...places.map(kmFrom)));
+  const near = (p) => kmFrom(p) <= siteKm;
   let map = null;
   let extra = "";                  // why the background is plain, when it is
   const pinOf = {};                // group id -> { btn }
@@ -84,16 +98,17 @@ export function mapView(root, nav) {
   const glides = {};               // "g:<group>" / "n:<Mobius name>" -> { from, to, t0, dur, heading }
   const trails = {};               // the same keys -> { el (svg g), pts: [[lat, lon], ...] }
   let raf = 0;
-  const hiddenLayers = layersOff();
+  const { off: hiddenLayers, on: shownLayers } = layersSaved();
   let closeLayers = null;
-  const isOn = (layer) => !hiddenLayers.has(layer);
+  const isOn = (layer) => (DEFAULT_OFF.has(layer) ? shownLayers.has(layer) : !hiddenLayers.has(layer));
   const hideParked = () => hiddenLayers.has("parked");
   const away = (g) => (isQuiet(g, { always: true }) && !showHidden("map")) || !isOn(placeLayer(g));
 
   function setLayer(layer, on) {
-    if (on) hiddenLayers.delete(layer);
-    else hiddenLayers.add(layer);
-    lsSet(LAYERS_KEY, JSON.stringify({ off: [...hiddenLayers] }));
+    const set = DEFAULT_OFF.has(layer) ? shownLayers : hiddenLayers;
+    if (on === DEFAULT_OFF.has(layer)) set.add(layer);
+    else set.delete(layer);
+    lsSet(LAYERS_KEY, JSON.stringify({ off: [...hiddenLayers], on: [...shownLayers] }));
     map?.el.classList.toggle("no-labels", hiddenLayers.has("labels"));
     map?.render();
     fillSide();
@@ -172,16 +187,22 @@ export function mapView(root, nav) {
     showTip(e.clientX, e.clientY, g.name, [
       { value: STATUS_LABEL[statusName(n.s)], label: (n.r || [])[0] || "" },
       { value: KIND_TEXT[g.kind] || (isVehicle ? "Vehicle" : "Location"), label: isVehicle && parked(g) ? "parked" : "" },
+      isVehicle ? idRow(fleet.byGroup[g.id]) : null,
       isVehicle ? posRow(vehiclePos(g)) : null].filter(Boolean));
   }
+
+  // what Mobius says a vehicle is (0.9.7)
+  const idRow = (v) => (v && (v.type || v.model || v.ip)
+    ? { value: [v.type, v.model].filter(Boolean).join(" · ") || "In Mobius", label: v.ip || "" } : null);
 
   function foreignTip(e, name) {
     const v = fleet.byName[name];
     showTip(e.clientX, e.clientY, name, [
-      { value: "In Mobius", label: "not in the inventory" },
+      v?.simulated ? { value: "Mobius simulator", label: "not a real vehicle" } : { value: "In Mobius", label: "not a vehicle here yet" },
       { value: v?.live ? "Talking to Mobius" : "Not talking to Mobius", label: "" },
+      idRow(v),
       posRow(v),
-      { value: "", label: "Put this name in Groups → Mobius asset (devices.xlsx)" }].filter(Boolean));
+      v?.simulated ? null : { value: "", label: "It gets a card of its own within a minute (added from Mobius)" }].filter(Boolean));
   }
 
   const tipHandlers = (show) => ({
@@ -299,7 +320,7 @@ export function mapView(root, nav) {
       if (!v) continue;
       const key = `n:${name}`;
       const pos = shown(key, v);
-      const hid = !isOn("foreign") || (!v.live && hide);
+      const hid = (v.simulated ? !isOn("simulated") : !isOn("foreign")) || (!v.live && hide);
       btn.classList.toggle("parked", !v.live);
       btn.classList.toggle("hidden", hid);
       const { x, y } = project(pos.lat, pos.lon);
@@ -345,6 +366,7 @@ export function mapView(root, nav) {
     const missing = groups.filter((g) => (g.tab === "vehicles" ? !vehiclePos(g) : !located(g))
       && !(g.tab !== "vehicles" && hiding && isQuiet(g, { always: true })));
     const now = Date.now() / 1000;
+    const far = farAway();
     side.replaceChildren(...[
       h("h2", { text: "Legend" }),
       h("ul", { class: "plain map-legend" }, ...["ok", "warning", "critical", "offline", "unknown"].map((st) =>
@@ -359,10 +381,16 @@ export function mapView(root, nav) {
       others.length ? h("div", { class: "map-foreign" },
         h("h2", { text: `In Mobius, not in the inventory (${others.length})` }),
         h("ul", { class: "plain" }, ...others.map((v) =>
-          h("li", {}, dot(v.live ? 1 : 2), h("span", { text: v.name }),
+          h("li", {}, dot(v.live ? 1 : 2), h("span", { text: v.simulated ? `${v.name} (simulator)` : v.name }),
             h("span", { class: "muted", text: v.live ? "now" : fmtWhen(v.t, now) })))),
-        h("p", { class: "muted small", text: "Put a name in Groups → Mobius asset of devices.xlsx, then rebuild the "
-          + "inventory: the vehicle then gets its own pin, cards and checks." })) : null,
+        h("p", { class: "muted small", text: "A real vehicle gets its own card, pin and checks by itself within a minute "
+          + "(added from Mobius). The Mobius simulator's vehicles stay here - their map layer is off unless you switch it on." })) : null,
+      far.length ? h("div", { class: "map-far" },
+        h("h2", { text: `Far from the site (${far.length})` }),
+        h("ul", { class: "plain" }, ...far.map((x) => h("li", {}, x.g ? goTo(x.g) : h("span", { text: x.name }),
+          h("span", { class: "muted", text: `${kmText(x.km)} away${x.t ? ` · ${fmtWhen(x.t, now)}` : ""}` })))),
+        h("p", { class: "muted small", text: "Their last GPS position is outside the site, so Fit the site leaves them out "
+          + "- often a bad GPS fix. They are still on the map if you pan to them." })) : null,
       h("h2", { text: `Not on the map (${missing.length})` }),
       missing.length ? h("ul", { class: "plain map-missing" }, ...missing.map((g) => h("li", {}, dot(node(g.id).s), goTo(g))))
         : h("p", { class: "muted small", text: "Everything has a position." }),
@@ -430,9 +458,22 @@ export function mapView(root, nav) {
       const p = vehiclePos(g);
       if (p && (parked(g) ? !hide : isOn("running"))) pts.push(p);
     }
-    if (isOn("foreign")) for (const v of foreign()) if (v.live || !hide) pts.push(v);
-    if (pts.length) map.fit(pts);
+    for (const v of foreign()) if ((v.simulated ? isOn("simulated") : isOn("foreign")) && (v.live || !hide)) pts.push(v);
+    const here = pts.filter(near);                  // far-away fixes (a GPS glitch) never zoom the site out
+    if (here.length || pts.length) map.fit(here.length ? here : pts);
   }
+
+  // vehicles whose last position is outside the site area: [{ name, km, t, g }]
+  function farAway() {
+    const out = [];
+    for (const g of vehicles) {
+      const p = vehiclePos(g);
+      if (p && !near(p)) out.push({ name: g.name, km: kmFrom(p), t: p.t, g });
+    }
+    for (const v of foreign()) if (!near(v)) out.push({ name: v.name, km: kmFrom(v), t: v.t, g: null });
+    return out.sort((a, b) => b.km - a.km);
+  }
+  const kmText = (km) => (km >= 10 ? `${Math.round(km).toLocaleString()} km` : `${km.toFixed(1)} km`);
 
   // the Layers button and its panel, top left on the map (0.9.6)
   function layersControl() {
@@ -471,7 +512,8 @@ export function mapView(root, nav) {
         h("h3", { text: "Vehicles" }),
         row("running", "Running", running),
         row("parked", "Parked (faded)", parkedN),
-        fleet.enabled ? row("foreign", "Not in the inventory (grey)", others.length) : null,
+        fleet.enabled ? row("foreign", "Not in the inventory (grey)", others.filter((v) => !v.simulated).length) : null,
+        others.some((v) => v.simulated) ? row("simulated", "Mobius simulator", others.filter((v) => v.simulated).length) : null,
         h("h3", { text: "Lines and names" }),
         lines.length ? row("links", "60 GHz links", lines.length) : null,
         row("trails", "Vehicle trails (2 min)"),
@@ -479,7 +521,7 @@ export function mapView(root, nav) {
         hiddenLayers.size ? h("button", { type: "button", class: "linkish", text: "Show all", onclick: () => {
           for (const l of [...hiddenLayers]) setLayer(l, true);
           fill();
-        } }) : null,
+        } }) : null,                                  // ("Show all" leaves the simulator's vehicles as they are)
       ].filter(Boolean));
     }
     return box;

@@ -16,6 +16,11 @@ Besides the vehicle types (vcu, gnss, vai, mobius_ntrip):
                    mobius_clients: a table + field whose distinct values in the last 5 minutes are the clients
     mobius_client  (0.9.6) host_cpu_pct, host_mem_used_pct, host_disk_used_pct, client_fps, client_uptime_s:
                    fields of that same clients table, each PC's newest - the Control Room's list of clients
+                   (0.9.7) client_address, client_state: the client connections table - the address text
+                   (its IPv4 is used) and Connected / Disconnected (Text values: Connected=1, *=0)
+    vehicle        (0.9.7) vehicle_ip, vehicle_mac, vehicle_make, vehicle_model, vehicle_type, vehicle_comms: what
+                   each Mobius vehicle is, as text, per vehicle tag - the vehicles added from Mobius by themselves
+                   (mobius_vehicles.py), their IP pinged
 """
 
 from __future__ import annotations
@@ -23,6 +28,9 @@ from __future__ import annotations
 DEFAULT_MAP: dict[str, dict] = {}
 LINK = "vcu_communicating"          # a vehicle whose newest link value is false is not communicating
 EMPTY = "(empty)"                   # how the sheet writes an empty text value
+VEHICLE_INFO = ("vehicle_ip", "vehicle_mac", "vehicle_make", "vehicle_model", "vehicle_type", "vehicle_comms")
+CONNECTIONS = ("client_address", "client_state")
+TEXT_VALUES = {"vehicle": VEHICLE_INFO, "mobius_server": CONNECTIONS}     # read as text, never judged (0.9.7)
 
 
 def _numbers(values) -> dict[str, float]:

@@ -624,6 +624,7 @@ pre.report-text { max-height: none; }
 .map-side h2:first-child { margin-top: 0; }
 .map-side ul.plain li { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 13px; }
 .map-foreign li .muted { margin-left: auto; font-size: 12px; }
+.map-far li .muted { margin-left: auto; font-size: 12px; white-space: nowrap; }   /* 0.9.7 */
 
 /* ---------- Overview (0.9.3) ---------- */
 .home-panels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }

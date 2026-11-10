@@ -53,6 +53,9 @@ export function startMobiusSummary() {
       store.mobius = await get("/api/mobius/summary");
       notify("live");
     } catch (e) { console.error(e); }
+    if (store.meta.mode === "live") {
+      try { store.mobiusVehicles = await get("/api/mobius/vehicles"); } catch { /* restarting: keep the last */ }
+    }
   };
   once();
   setInterval(once, 30000);
