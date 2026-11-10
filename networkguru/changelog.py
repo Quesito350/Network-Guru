@@ -7,6 +7,19 @@ networkguru.__version__ - release.py refuses to package otherwise).
 """
 
 CHANGES = [
+    ("0.9.9", "2026-11-10", [
+        "The Overview has the site map under its three panels - the same pins, 60 GHz links, moving vehicles and "
+        "Layers as the Map page; click a pin to open it.",
+        "New problems pop up at the top right for 30 seconds, on every page: the device or place, why, and since when. "
+        "Hover to keep one, click it to open it. When the page opens, one note says how many need attention; the same "
+        "device pops up again only after 5 minutes, unless it gets worse.",
+        "The 'Needs attention now' list is off the Overview. The new Errors button (next to Map) shows how many things "
+        "are Warning or Critical now and lists them all.",
+        "Full screen on the Overview: the panels and the map fill the screen, for a wall display. Esc or 'Exit full "
+        "screen' leaves it. A TV browser can open the same view at #/overview?full=1.",
+        "Fixed: after you opened an event (which shows History around it), the Map said History. The map is always "
+        "the live state, so it now always opens in Live and has no History buttons.",
+    ]),
     ("0.9.8", "2026-11-10", [
         "A Tachyon or switch that will not give its values now says what to change on it. 'Refused' means SNMPv2 is "
         "off on it (v3 only) or its community is not the one in secrets.env; 'no answer' adds that SNMP may be off "

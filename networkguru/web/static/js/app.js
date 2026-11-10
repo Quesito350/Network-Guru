@@ -1,5 +1,7 @@
 // Bootstrap: header (Live/History, range), tabs (Overview first - the start page), routing, events
 // drawer, help, What's new, and the update banner.
+// 0.9.9: the Errors button (next to Map) and its drawer, toasts for new problems (toasts.js), the Overview's
+// full-screen "wall" layout (also #/overview?full=1 for a TV), and the Map always in Live (it has no History).
 
 import { connectLive, get } from "./api.js";
 import { clear, h, s, setText } from "./dom.js";
@@ -10,9 +12,10 @@ import { feedbackButton } from "./feedback.js";
 import { errorButton, watchErrors } from "./problem.js";
 import { startMobiusSummary } from "./quiet.js";
 import { indexInventory, node, notify, store, subscribe, window_ } from "./store.js";
+import { problemRows, startToasts } from "./toasts.js";
 import { initUpdates } from "./updates.js";
 import { adminView } from "./views/admin.js";
-import { eventLink, TAB_TITLE } from "./views/common.js";
+import { eventLink, fillAttention, TAB_TITLE } from "./views/common.js";
 import { componentView, groupView } from "./views/detail.js";
 import { homeView } from "./views/home.js";
 import { mapView } from "./views/map.js";
@@ -36,7 +39,7 @@ function parseHash() {
   const [path, query] = raw.split("?");
   const parts = path.split("/").filter(Boolean).map(decodeURIComponent);
   const q = new URLSearchParams(query || "");
-  store.mode = q.get("mode") === "history" ? "history" : "live";
+  store.mode = q.get("mode") === "history" && parts[0] !== "map" ? "history" : "live";    // the map is live only
   if (q.get("from") && q.get("to")) {
     store.range = "custom";
     store.from = Number(q.get("from"));
@@ -55,7 +58,7 @@ function queryString() {
 }
 
 export function nav(href) {
-  const target = href.includes("?") ? href : href + queryString();
+  const target = href.split("?")[0] === "#/map" ? "#/map" : href.includes("?") ? href : href + queryString();
   if (location.hash === target) render(true);
   else location.hash = target;
 }
@@ -76,7 +79,10 @@ function render(force = false) {
   const main = document.getElementById("main");
   clear(main);
   const [a, b] = r.parts;
-  if (a === "overview") current = homeView(main, nav);
+  const full = new URLSearchParams(r.key.split("?")[1] || "").get("full") === "1";
+  if (a === "overview" && full) enterWall(false);
+  else if (a !== "overview" && document.body.classList.contains("wall")) exitWall();
+  if (a === "overview") current = homeView(main, nav, { full: () => enterWall(true) });
   else if (a === "admin") current = adminView(main, nav);
   else if (a === "report") current = reportView(main, nav);
   else if (a === "map") current = mapView(main, nav);
@@ -140,10 +146,12 @@ function buildHeader() {
 }
 
 function updateHeader() {
+  const onMap = route.parts[0] === "map";            // the map is always the live state: no History there
+  el.mode.classList.toggle("hidden", onMap);
   for (const b of el.mode.children) b.setAttribute("aria-pressed", String(b.dataset.mode === store.mode));
-  el.range.classList.toggle("hidden", store.mode !== "history");
+  el.range.classList.toggle("hidden", onMap || store.mode !== "history");
   for (const b of el.range.children) b.setAttribute("aria-pressed", String(b.dataset.range === store.range));
-  el.custom.classList.toggle("hidden", !(store.mode === "history" && store.range === "custom"));
+  el.custom.classList.toggle("hidden", onMap || !(store.mode === "history" && store.range === "custom"));
   if (store.range === "custom" && store.from && store.to) {
     el.cFrom.value = toLocalInput(store.from);
     el.cTo.value = toLocalInput(store.to);
@@ -191,7 +199,84 @@ function buildTabs() {
       s("path", { d: "M8 1.5a4.5 4.5 0 00-4.5 4.5c0 3.4 4.5 8.5 4.5 8.5s4.5-5.1 4.5-8.5A4.5 4.5 0 008 1.5zm0 6.3a1.8 1.8 0 110-3.6 1.8 1.8 0 010 3.6z" })),
     "Map");
   el.mapTab.addEventListener("click", (e) => { e.preventDefault(); nav("#/map"); });
-  nav_.append(el.mapTab);
+  el.errCount = h("span", { class: "ecount" });
+  el.errTab = h("a", { href: "#", class: "tab-errors", role: "button", title: "Everything that is Warning or Critical now" },
+    s("svg", { viewBox: "0 0 16 16", "aria-hidden": "true" }, s("path", { d: "M8 1.2l7 12.6H1z" })), "Errors", el.errCount);
+  el.errTab.addEventListener("click", (e) => { e.preventDefault(); openErrors(); });
+  nav_.append(el.errTab, el.mapTab);
+}
+
+// the Errors count: the tabs row and the full-screen bar, coloured by the worst
+function updateErrors() {
+  const rows = problemRows();
+  const worst = rows.length ? Math.max(...rows.map((r) => r.n.s)) : 0;
+  const cls = `ecount${worst >= 4 ? " s-critical" : worst >= 3 ? " s-warning" : ""}`;
+  for (const c of [el.errCount, el.wallCount]) {
+    if (!c) continue;
+    c.className = cls;
+    setText(c, String(rows.length));
+  }
+  const t = rows.length ? `${rows.length} need attention now` : "Nothing needs attention now";
+  el.errTab.title = t;
+  if (el.wallErr) el.wallErr.title = t;
+  if (errDrawer?.open) errDrawer.fill(rows);
+}
+
+// the Errors drawer: the Overview's old "Needs attention now" list, for all three tabs, kept up to date
+let errDrawer = null;
+function openErrors() {
+  if (!errDrawer) {
+    const list = h("ul");
+    const scrim = h("div", { class: "scrim hidden" });
+    const close = () => { panel.classList.remove("open"); scrim.classList.add("hidden"); errDrawer.open = false; };
+    const panel = h("aside", { class: "drawer errors-drawer", "aria-label": "Errors" },
+      h("header", {}, h("h2", { text: "Errors · now" }),
+        h("button", { class: "xbtn", type: "button", "aria-label": "Close", text: "×", onclick: () => close() })),
+      h("p", { class: "muted small drawer-note", text: "Every device and place that is Warning or Critical now, worst first. "
+        + "Devices behind a failed one, and places gone quiet, are left out." }),
+      h("div", { class: "issues" }, list));
+    scrim.addEventListener("click", close);
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && errDrawer.open) close(); });
+    document.body.append(scrim, panel);
+    errDrawer = { panel, scrim, open: false,
+      fill(rows = problemRows()) { fillAttention(list, rows, (href) => { close(); nav(href); }, 500); } };
+  }
+  errDrawer.open = true;
+  errDrawer.scrim.classList.remove("hidden");
+  errDrawer.panel.classList.add("open");
+  errDrawer.fill();
+}
+
+// ---------------------------------------------------------------------------
+// the Overview on the whole screen ("wall"): no header, tabs or footer; the panels and the map fill it
+let wallFs = false;                  // we asked the browser for full screen
+function buildWallBar() {
+  el.wallCount = h("span", { class: "ecount" });
+  el.wallErr = h("button", { type: "button", class: "btn", onclick: () => openErrors() }, "Errors", el.wallCount);
+  document.body.append(h("div", { class: "wall-bar" }, el.wallErr,
+    h("button", { type: "button", class: "btn", text: "Exit full screen", onclick: () => exitWall() })));
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement && wallFs) { wallFs = false; exitWall(); }
+  });
+  document.addEventListener("keydown", (e) => {          // without the browser's full screen (?full=1), Esc leaves
+    if (e.key === "Escape" && document.body.classList.contains("wall") && !document.querySelector(".drawer.open")) exitWall();
+  });
+}
+
+function enterWall(ask) {
+  document.body.classList.add("wall");
+  const de = document.documentElement;
+  if (ask && de.requestFullscreen && !document.fullscreenElement) {
+    de.requestFullscreen().then(() => { wallFs = true; }).catch(() => { /* refused: the layout alone */ });
+  }
+  updateErrors();
+}
+
+function exitWall() {
+  document.body.classList.remove("wall");
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  wallFs = false;
+  if (/[?&]full=1/.test(location.hash)) location.hash = "#/overview";
 }
 
 function updateTabs() {
@@ -356,6 +441,7 @@ async function main() {
   buildBanners();
   buildTabs();
   buildFooter();
+  buildWallBar();
   initUpdates(el.upd, el.updFoot);
   let building = store.backfill < 100;
   subscribe((kind) => {
@@ -366,6 +452,7 @@ async function main() {
       }
       current?.update?.();
       updateTabs();
+      updateErrors();
       updateBackfill();
     }
     tickConn();
@@ -373,6 +460,8 @@ async function main() {
   window.addEventListener("hashchange", () => render());
   connectLive();
   render();
+  startToasts({ nav, openErrors });
+  updateErrors();
   startMobiusSummary();
   setInterval(tickConn, 1000);
   updateEventCount();

@@ -15,13 +15,15 @@
 // layer of their own, off unless switched on.
 // 0.9.7: "Fit the site" (and the first view) fits the site area - around the located places - so a vehicle
 // whose last GPS fix is far away (a glitch) no longer zooms the map out; the side panel lists those.
+// 0.9.9: `embedded` - the Overview's map: the same pins, links, vehicles, Layers and Fit the site, without the page
+// title and the side list. The map is always the live state, so the Map page is always Live (app.js).
 
 import { get } from "../api.js";
 import { h, s, setClass, setText } from "../dom.js";
 import { fmtAgo, fmtWhen, STATUS_LABEL, statusName } from "../fmt.js";
 import { isQuiet, setShowHidden, showHidden } from "../quiet.js";
 import { dot } from "../status.js";
-import { node, store, window_ } from "../store.js";
+import { node, store } from "../store.js";
 import { hideTip, showTip } from "../widgets/chart.js";
 import { slippyMap } from "../widgets/slippy.js";
 
@@ -71,12 +73,15 @@ function metres(a, b) {
   return [(b.lon - a.lon) * 111320 * Math.cos(((a.lat + b.lat) / 2) * Math.PI / 180), (b.lat - a.lat) * 110540];
 }
 
-export function mapView(root, nav) {
-  const head = h("div", { class: "page-head" }, h("h1", { text: "Map" }), h("span", { class: "sub", text: store.inv.site.name }));
+export function mapView(root, nav, { embedded = false } = {}) {
   const note = h("div", { class: "map-note hidden", role: "status" });
   const side = h("aside", { class: "map-side panel pad" });
   const holder = h("div", { class: "map-holder" });
-  root.append(head, note, h("div", { class: "map-layout" }, holder, side));
+  if (embedded) root.append(note, holder);
+  else {
+    root.append(h("div", { class: "page-head" }, h("h1", { text: "Map" }), h("span", { class: "sub", text: store.inv.site.name })),
+      note, h("div", { class: "map-layout" }, holder, side));
+  }
 
   const groups = Object.values(store.groups);
   const vehicles = groups.filter((g) => g.tab === "vehicles");
@@ -165,7 +170,6 @@ export function mapView(root, nav) {
 
   function notes() {
     const parts = [];
-    if (!window_().live) parts.push("The map shows the live state, also in History.");
     if (extra) parts.push(extra);
     if (!places.length) parts.push("No location has a position yet: add Lat / Lon on the Groups sheet of devices.xlsx "
       + "(the Rajant snapshot import fills them from the radios' GPS), then rebuild the inventory.");
@@ -358,6 +362,7 @@ export function mapView(root, nav) {
     onclick: (e) => { e.preventDefault(); nav(`#/${g.tab}/${g.id}`); } });
 
   function fillSide() {
+    if (embedded) return;                        // the Overview's map has no side list
     const quiet = places.filter((g) => isQuiet(g, { always: true }));
     const hiding = !showHidden("map");
     const others = foreign();
@@ -539,7 +544,7 @@ export function mapView(root, nav) {
       map.render();
       sideSoon();
     },
-    refreshRange() { notes(); },
+    refreshRange() {},
     destroy() {
       alive = false;
       if (timer) clearInterval(timer);

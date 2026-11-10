@@ -1,16 +1,18 @@
 // Overview (0.9.3, the start page): a panel each for Vehicles, Control Room and Infrastructure - the tab's
-// status, counts, a few headline numbers and a chip per vehicle / station / location (worst first) - then
-// one "Needs attention now" list for all three. In Live, groups that have gone quiet are left out as on
-// the tabs (quiet.js); History colours the chips by the worst status of the range and hides the numbers
-// (they are live).
+// status, counts, a few headline numbers and a chip per vehicle / station / location (worst first). In Live,
+// groups that have gone quiet are left out as on the tabs (quiet.js); History colours the chips by the worst
+// status of the range and hides the numbers (they are live).
+// 0.9.9: the map under the panels (map.js, embedded) instead of the "Needs attention now" list - new problems
+// are toasts (toasts.js) and the Errors button lists them all; "Full screen" (app.js: the wall layout).
 
 import { get } from "../api.js";
-import { h, setClass, setText } from "../dom.js";
+import { h, s, setClass, setText } from "../dom.js";
 import { fmtValue, metricLevel, statusName, STATUS_LABEL } from "../fmt.js";
 import { isQuiet, quietText, setShowHidden, showHidden } from "../quiet.js";
 import { badge, countsLine, dot, updateBadge, updateDot } from "../status.js";
 import { node, rangeLabel, store, window_ } from "../store.js";
-import { attentionRows, fillAttention, TAB_TITLE } from "./common.js";
+import { TAB_TITLE } from "./common.js";
+import { mapView } from "./map.js";
 
 const TABS = ["vehicles", "control", "infrastructure"];
 const NOUN = { vehicles: ["vehicle", "vehicles"], control: ["station", "stations"], infrastructure: ["location", "locations"] };
@@ -121,17 +123,23 @@ function panel(tabId, nav) {
   return { tabId, groups, el, b, counts, cells, nums, liveNote, chipsBox, more, chips, order: "" };
 }
 
-export function homeView(root, nav) {
+export function homeView(root, nav, { full = null } = {}) {
   const panels = TABS.filter((t) => store.inv.tabs.some((x) => x.id === t)).map((t) => panel(t, nav));
   const all = panels.flatMap((p) => p.groups);
   const sub = h("span", { class: "sub" });
   const quietBar = h("div", { class: "quiet-bar hidden" });
-  const issues = h("ul");
+  const fullBtn = full ? h("button", { type: "button", class: "btn home-full", title: "The Overview on the whole screen (Esc to leave)",
+    onclick: () => full() },
+  s("svg", { viewBox: "0 0 16 16", "aria-hidden": "true" },
+    s("path", { d: "M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4", fill: "none", stroke: "currentColor", "stroke-width": 1.8 })),
+  "Full screen") : null;
+  const mapBox = h("section", { class: "home-map", "aria-label": "Map" });
   root.append(
-    h("div", { class: "page-head" }, h("h1", { text: "Overview" }), sub),
+    h("div", { class: "page-head" }, h("h1", { text: "Overview" }), sub, fullBtn),
     h("div", { class: "home-panels" }, panels.map((p) => p.el)),
     quietBar,
-    h("section", { class: "issues" }, h("h2", { text: "Needs attention now" }), issues));
+    mapBox);
+  const map = mapView(mapBox, nav, { embedded: true });
 
   let rangeWorst = null;              // History: worst status per group over the range
 
@@ -179,7 +187,7 @@ export function homeView(root, nav) {
         h("button", { type: "button", class: "linkish", text: hide ? "Show them" : "Hide them",
           onclick: () => { setShowHidden("overview", hide); update(); } }));
     }
-    fillAttention(issues, attentionRows(all, hidden), nav);
+    map.update();
   }
 
   let timer = null;
@@ -210,6 +218,9 @@ export function homeView(root, nav) {
   return {
     update,
     refreshRange() { loadHistory(); },
-    destroy() { if (timer) clearInterval(timer); },
+    destroy() {
+      if (timer) clearInterval(timer);
+      map.destroy();
+    },
   };
 }
