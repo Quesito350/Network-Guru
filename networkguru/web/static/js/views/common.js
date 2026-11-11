@@ -240,7 +240,8 @@ export function eventsSection(nodeId, nav) {
   return { el, load };
 }
 
-const SYS_LABEL = { update: "Update", report: "Report", admin: "Admin", discovery: "Network scan", mobius: "Mobius" };
+const SYS_LABEL = { update: "Update", report: "Report", admin: "Admin", discovery: "Network scan", mobius: "Mobius",
+  problem: "Problem report" };
 
 export function eventLink(e, nav) {
   if (e.kind === "system") {            // updates, morning reports, sign-ins: nothing to open

@@ -20,7 +20,7 @@ from ..drivers.mobius_map import TEXT_VALUES
 SITE_COLS = ["Site", "Name", "Time zone", "Lat", "Lon", "Mobius InfluxDB URL", "Mobius database", "Mobius vehicle tag",
              "Netmaker URL", "Subnets", "Infrastructure subnet", "Notes"]
 GROUP_COLS = ["Site", "Group", "Kind", "Mobius asset", "Netmaker host", "Access", "Expected online", "Has VAI",
-              "Lat", "Lon", "Notes"]
+              "Lat", "Lon", "Coverage m", "Antenna bearing", "Beam width", "Notes"]
 DEVICE_COLS = ["Site", "Group", "Type", "Name", "Model", "Serial", "MAC", "Address", "IP", "API address", "Link",
                "Role", "Install RSSI", "Switch port", "Firmware", "Monitor", "Modbus unit", "Notes"]
 MAP_COLS = ["Site", "Type", "Value", "Mobius table", "Field", "Text values", "Notes"]
@@ -42,6 +42,9 @@ README = [
     "Groups: one row per vehicle, trailer, tower, building, repeater, COW, network core, Mobius server or desk.",
     "  Lat / Lon: where its pin goes on the map (decimal degrees, e.g. 40.7602 / -111.8912). The Rajant snapshot",
     "  import fills them from the radios' GPS when empty; type or correct them here. Vehicles need none (they move).",
+    "  Coverage m (0.10.0): how far this tower's radio signal reaches, in metres - the map's Coverage layer draws it.",
+    "  Antenna bearing / Beam width: for a sector antenna, where it points (0-360, from north) and how wide",
+    "  (degrees). Leave both empty for an omni antenna. It's the planned range, not a measurement.",
     "Devices: one row per device. Group must match a Groups row. Type picks how it is checked.",
     "Address: static, or dhcp (then give a Serial or MAC so it can be found when its IP changes).",
     "Link / Role / Install RSSI: 60 GHz Tachyon pairs share a Link name; master is the end toward the COW.",

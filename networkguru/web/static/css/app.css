@@ -740,3 +740,12 @@ body.wall .home-map .map { flex: 1; height: auto; min-height: 200px; }
 body.wall .wall-bar { display: flex; gap: 8px; position: fixed; top: 10px; right: 14px; z-index: 36; }
 body.wall .wall-bar .btn { display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); }
 body.wall .toasts { top: 54px; }
+
+/* ---------- 0.10.0: tower coverage (map.js) - planned range, three bands, one colour per tower ---------- */
+.map-cover .cover path { fill-opacity: 0.14; stroke-opacity: 0.85; stroke-width: 2; pointer-events: visiblePainted; }
+.map-cover .cover .b80 { fill-opacity: 0.14; stroke: none; }
+.map-cover .cover .b50 { fill-opacity: 0.18; stroke: none; }
+.map-cover .cover.down path { fill: var(--s-offline); stroke: var(--s-offline); fill-opacity: 0.05; }
+.map-cover .cover.down .b100 { stroke-dasharray: 6 5; stroke-opacity: 0.9; }
+.map-layers-panel .cover-all { display: flex; gap: 12px; margin: 2px 0 4px; }
+.map-layers-panel .cover-all .linkish { margin-top: 0; }

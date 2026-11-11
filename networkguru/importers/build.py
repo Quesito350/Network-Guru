@@ -191,6 +191,8 @@ def build_inventory(sheet: Sheet, site: str, name: str | None = None, timezone: 
                 entry["lat"], entry["lon"] = where
             else:
                 report.append(f"! {g['Group']}: Lat/Lon '{g['Lat']}' / '{g['Lon']}' is not a position - not on the map")
+        if kind != "vehicle":
+            entry.update(_coverage(g, report))
         for d in devices:
             if d["Group"].strip().lower() != g["Group"].strip().lower():
                 continue
@@ -276,6 +278,34 @@ def _position(lat: str, lon: str) -> tuple[float, float] | None:
     except ValueError:
         return None
     return (round(la, 6), round(lo, 6)) if -90 <= la <= 90 and -180 <= lo <= 180 else None
+
+
+def _coverage(g: dict, report: list[str]) -> dict:
+    """Coverage m / Antenna bearing / Beam width (0.10.0): the map's planned coverage of a tower.
+    A bad value is a report line and is left out; a bearing needs a width and the other way round."""
+    out: dict = {}
+    checks = (("Coverage m", "coverage_m", 1, 100_000), ("Antenna bearing", "bearing", 0, 360), ("Beam width", "beamwidth", 1, 360))
+    for col, key, lo, hi in checks:
+        text = str(g.get(col) or "").strip()
+        if not text:
+            continue
+        try:
+            v = float(text)
+        except ValueError:
+            v = None
+        if v is None or not lo <= v <= hi:
+            report.append(f"! {g['Group']}: {col} '{text}' is not {lo}-{hi:g} - left out")
+            continue
+        out[key] = round(v, 1)
+    if "coverage_m" not in out:
+        if "bearing" in out or "beamwidth" in out:
+            report.append(f"! {g['Group']}: Antenna bearing / Beam width without Coverage m - left out")
+        return {}
+    if ("bearing" in out) != ("beamwidth" in out):
+        report.append(f"! {g['Group']}: a sector needs both Antenna bearing and Beam width - drawn as an omni")
+        out.pop("bearing", None)
+        out.pop("beamwidth", None)
+    return out
 
 
 def _infra(sheet: Sheet, site: str) -> str:

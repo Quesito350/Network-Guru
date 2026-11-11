@@ -33,6 +33,8 @@ DEFAULTS: dict[str, Any] = {
     "hide_quiet_tabs": ["vehicles", "control", "infrastructure"],
     "discovery_time": "02:00",       # the nightly network scan, site time ("" = no nightly scan)
     "discovery_ranges": [],          # networks the scan covers on top of the inventory's own (Admin page)
+    "ncr_url": "",                   # 0.10.0: the Network Change Requests page Report a problem opens (problem_ticket.py)
+    "ncr_location": "",              # its Location for this site ("" = guessed from the site's name)
 }
 HIDE_TABS = ("vehicles", "control", "infrastructure")
 _EMAIL = re.compile(r"^[^@\s,;<>\"]+@[^@\s,;<>\"]+\.[^@\s,;<>\"]+$")
@@ -117,6 +119,16 @@ def validate(patch: dict[str, Any]) -> dict[str, Any]:
             out[key] = [t for t in HIDE_TABS if t in items]
         elif key == "discovery_ranges":
             out[key] = _scan_ranges(value)
+        elif key == "ncr_url":
+            v = str(value or "").strip()
+            if v and (not re.match(r"^https://[^\s<>\"#]+$", v) or len(v) > 300):
+                raise ValueError("ncr_url: the change request page's https:// link (without a # part)")
+            out[key] = v
+        elif key == "ncr_location":
+            from .problem_ticket import NCR_LOCATIONS
+            if value not in ("", *NCR_LOCATIONS):
+                raise ValueError("ncr_location: " + ", ".join(NCR_LOCATIONS) + " (or empty = guess)")
+            out[key] = value
         elif key == "dashboard_url":
             v = str(value or "").strip()
             if v and not re.match(r"^https?://[^\s<>\"]+$", v):

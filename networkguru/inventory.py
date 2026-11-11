@@ -71,6 +71,9 @@ class Group(BaseModel):
                                         validation_alias=AliasChoices("components", "devices"))
     lat: float | None = None
     lon: float | None = None
+    coverage_m: float | None = None    # 0.10.0: the planned reach of its radio (map Coverage layer)
+    bearing: float | None = None       # a sector antenna: where it points (degrees from north) ...
+    beamwidth: float | None = None     # ... and how wide; both empty = omni
     mobius_asset: str | None = None    # vehicles: the asset name in Mobius
     access: str | None = None          # vehicles: rajant | celona
     model: str | None = None           # vehicles: truck model text
@@ -398,6 +401,7 @@ class Inventory:
                     "access": g.access, "model": g.model, "mobius_asset": g.mobius_asset,
                     "expected_online": g.expected_online, "offline_severity": self.offline_severity(g.id),
                                     "lat": g.lat, "lon": g.lon,
+                    "coverage_m": g.coverage_m, "bearing": g.bearing, "beamwidth": g.beamwidth,
                     "components": [{
                         "id": c.id, "type": c.type, "name": c.label, "host": c.host, "model": c.model,
                         "source": c.source or "device", "depends_on": c.depends_on, "critical": c.critical,

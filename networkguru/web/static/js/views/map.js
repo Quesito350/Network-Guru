@@ -58,6 +58,11 @@ const PLACE_TEXT = { trailer: "Trailers", tower: "Towers", building: "Buildings"
 const placeLayer = (g) => `place:${PLACE_TEXT[g.kind] ? g.kind : "other"}`;
 
 const DEFAULT_OFF = new Set(["simulated"]);           // layers that are off until switched on
+const defaultOff = (layer) => DEFAULT_OFF.has(layer) || layer.startsWith("cov:");   // + each tower's coverage (0.10.0)
+// 0.10.0: a tower's planned coverage (Groups sheet: Coverage m, Antenna bearing, Beam width) - one colour each, and
+// three bands: strong to half its range, fair to 80 %, the edge to all of it
+const COVER_COLOURS = ["#4fc3f7", "#ffb74d", "#ba68c8", "#81c784", "#f06292", "#fff176", "#4db6ac", "#9575cd"];
+const BANDS = [1, 0.8, 0.5];
 
 function layersSaved() {
   try {
@@ -105,13 +110,13 @@ export function mapView(root, nav, { embedded = false } = {}) {
   let raf = 0;
   const { off: hiddenLayers, on: shownLayers } = layersSaved();
   let closeLayers = null;
-  const isOn = (layer) => (DEFAULT_OFF.has(layer) ? shownLayers.has(layer) : !hiddenLayers.has(layer));
+  const isOn = (layer) => (defaultOff(layer) ? shownLayers.has(layer) : !hiddenLayers.has(layer));
   const hideParked = () => hiddenLayers.has("parked");
   const away = (g) => (isQuiet(g, { always: true }) && !showHidden("map")) || !isOn(placeLayer(g));
 
   function setLayer(layer, on) {
-    const set = DEFAULT_OFF.has(layer) ? shownLayers : hiddenLayers;
-    if (on === DEFAULT_OFF.has(layer)) set.add(layer);
+    const set = defaultOff(layer) ? shownLayers : hiddenLayers;
+    if (on === defaultOff(layer)) set.add(layer);
     else set.delete(layer);
     lsSet(LAYERS_KEY, JSON.stringify({ off: [...hiddenLayers], on: [...shownLayers] }));
     map?.el.classList.toggle("no-labels", hiddenLayers.has("labels"));
@@ -192,7 +197,8 @@ export function mapView(root, nav, { embedded = false } = {}) {
       { value: STATUS_LABEL[statusName(n.s)], label: (n.r || [])[0] || "" },
       { value: KIND_TEXT[g.kind] || (isVehicle ? "Vehicle" : "Location"), label: isVehicle && parked(g) ? "parked" : "" },
       isVehicle ? idRow(fleet.byGroup[g.id]) : null,
-      isVehicle ? posRow(vehiclePos(g)) : null].filter(Boolean));
+      isVehicle ? posRow(vehiclePos(g)) : null,
+      g.coverage_m ? { value: "Coverage", label: `${kmText(g.coverage_m / 1000)} planned (Layers → Coverage)` } : null].filter(Boolean));
   }
 
   // what Mobius says a vehicle is (0.9.7)
@@ -282,6 +288,60 @@ export function mapView(root, nav, { embedded = false } = {}) {
     }
   }
 
+  // the coverage areas, under the links and pins (0.10.0)
+  const covered = places.filter((g) => g.coverage_m > 0);
+  const coverOf = {};              // group id -> { el (svg g), bands: [path], colour }
+  const isSector = (g) => g.bearing != null && g.beamwidth != null && g.beamwidth < 360;
+  function buildCover() {
+    if (!covered.length) return;
+    const layer = s("g", { class: "map-cover" });
+    map.overlay.prepend(layer);
+    covered.forEach((g, i) => {
+      const colour = COVER_COLOURS[i % COVER_COLOURS.length];
+      const bands = BANDS.map((f) => s("path", { class: `band b${Math.round(f * 100)}`, fill: colour, stroke: colour }));
+      const el = s("g", { class: "cover hidden" }, ...bands);
+      const show = (e) => showTip(e.clientX, e.clientY, g.name, [
+        { value: `${kmText(g.coverage_m / 1000)} range`, label: isSector(g) ? `sector ${Math.round(g.bearing)}° ± ${Math.round(g.beamwidth / 2)}°` : "all round" },
+        { value: "Planned", label: "from devices.xlsx, not measured" },
+        [2, 4].includes(node(g.id).s) ? { value: STATUS_LABEL[statusName(node(g.id).s)], label: "no coverage now" } : null].filter(Boolean));
+      el.addEventListener("mousemove", show);
+      el.addEventListener("mouseleave", hideTip);
+      layer.append(el);
+      coverOf[g.id] = { el, bands };
+    });
+  }
+  // a point `m` metres from a place, toward `deg` (from north) - flat-earth, fine for a few km
+  function offset(g, m, deg) {
+    const r = (deg * Math.PI) / 180;
+    return { lat: g.lat + (m * Math.cos(r)) / 111320, lon: g.lon + (m * Math.sin(r)) / (111320 * Math.cos((g.lat * Math.PI) / 180)) };
+  }
+  function shape(g, m, project) {
+    const pts = [];
+    if (isSector(g)) {
+      const steps = Math.max(6, Math.ceil(g.beamwidth / 4));
+      pts.push(project(g.lat, g.lon));
+      for (let i = 0; i <= steps; i++) {
+        const p = offset(g, m, g.bearing - g.beamwidth / 2 + (g.beamwidth * i) / steps);
+        pts.push(project(p.lat, p.lon));
+      }
+    } else {
+      for (let i = 0; i < 72; i++) {
+        const p = offset(g, m, i * 5);
+        pts.push(project(p.lat, p.lon));
+      }
+    }
+    return `M${pts.map((q) => `${q.x.toFixed(1)},${q.y.toFixed(1)}`).join("L")}Z`;
+  }
+  function drawCover(project) {
+    for (const g of covered) {
+      const c = coverOf[g.id];
+      if (!c) continue;
+      const off = !isOn(`cov:${g.id}`) || away(g);
+      c.el.classList.toggle("hidden", off);
+      if (!off) c.bands.forEach((b, i) => b.setAttribute("d", shape(g, g.coverage_m * BANDS[i], project)));
+    }
+  }
+
   function buildLines() {
     const seen = new Set();
     for (const g of places) {
@@ -335,6 +395,7 @@ export function mapView(root, nav, { embedded = false } = {}) {
   }
 
   function draw(project) {
+    drawCover(project);
     for (const g of places) {
       const { x, y } = project(g.lat, g.lon);
       pinOf[g.id].btn.style.transform = `translate(${x}px, ${y}px)`;
@@ -351,6 +412,7 @@ export function mapView(root, nav, { embedded = false } = {}) {
 
   function colour() {
     for (const [gid, pin] of Object.entries(pinOf)) setClass(pin.btn, "s-", statusName(node(gid).s));
+    for (const [gid, c] of Object.entries(coverOf)) c.el.classList.toggle("down", [2, 4].includes(node(gid).s));
     for (const l of lines) {
       const worst = Math.max(...l.comps.map((c) => node(c).s));
       setClass(l.el, "s-", statusName(worst));
@@ -376,6 +438,9 @@ export function mapView(root, nav, { embedded = false } = {}) {
       h("h2", { text: "Legend" }),
       h("ul", { class: "plain map-legend" }, ...["ok", "warning", "critical", "offline", "unknown"].map((st) =>
         h("li", {}, dot(["ok", "unknown", "offline", "warning", "critical"].indexOf(st)), STATUS_LABEL[st]))),
+      covered.length ? h("p", { class: "muted small", text: "Coverage areas (Layers → Coverage) are each tower's planned range from "
+        + "devices.xlsx (Coverage m), not a measurement: strong to half the range, fair to 80 %, then the edge. Dashed grey = "
+        + "the tower is down." }) : null,
       h("p", { class: "muted small", text: "Lines are 60 GHz links. Vehicles are where their GPS (in Mobius) last put "
         + "them: faded = parked, at its last position. Grey = in Mobius, not in the inventory." }),
       parkedOnes.length ? h("div", { class: "map-parked" },
@@ -443,6 +508,7 @@ export function mapView(root, nav, { embedded = false } = {}) {
     for (const g of places) makePin(g, false);
     for (const g of vehicles) makePin(g, true);
     syncForeign();
+    buildCover();
     buildLines();
     colour();
     fillSide();
@@ -519,6 +585,11 @@ export function mapView(root, nav, { embedded = false } = {}) {
         row("parked", "Parked (faded)", parkedN),
         fleet.enabled ? row("foreign", "Not in the inventory (grey)", others.filter((v) => !v.simulated).length) : null,
         others.some((v) => v.simulated) ? row("simulated", "Mobius simulator", others.filter((v) => v.simulated).length) : null,
+        covered.length ? h("h3", { text: "Coverage (planned)" }) : null,
+        covered.length ? h("div", { class: "cover-all" },
+          h("button", { type: "button", class: "linkish", text: "All", onclick: () => { covered.forEach((g) => setLayer(`cov:${g.id}`, true)); fill(); } }),
+          h("button", { type: "button", class: "linkish", text: "None", onclick: () => { covered.forEach((g) => setLayer(`cov:${g.id}`, false)); fill(); } })) : null,
+        ...covered.map((g) => row(`cov:${g.id}`, g.name, `${kmText(g.coverage_m / 1000)}${isSector(g) ? " sector" : ""}`)),
         h("h3", { text: "Lines and names" }),
         lines.length ? row("links", "60 GHz links", lines.length) : null,
         row("trails", "Vehicle trails (2 min)"),

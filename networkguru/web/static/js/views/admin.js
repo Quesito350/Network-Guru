@@ -40,7 +40,7 @@ export function adminView(root, nav) {
       head.lastChild.remove();
       load();
     } }));
-    body.append(updatesPanel(status.updates), feedbackPanel(nav, () => alive), reportPanel(status), mapPanel(status), livePanel(status),
+    body.append(updatesPanel(status.updates), feedbackPanel(nav, () => alive), problemPanel(status, () => alive), reportPanel(status), mapPanel(status), livePanel(status),
       discoveryPanel(nav, () => alive), speedPanel(status.speed), secretsPanel(status.secrets), eventsPanel(nav));
   }
 
@@ -172,6 +172,56 @@ function feedbackPanel(nav, isAlive) {
 
   load();
   return el;
+}
+
+// Report a problem (0.10.0): where its ticket goes, the reports it kept, and the server's log
+const NCR_LOCATIONS = ["Mendon", "Tremonton", "Logan", "Dallas/Fort Worth", "Denver", "Other"];
+
+function problemPanel(st, isAlive) {
+  const msg = h("div", { class: "form-msg", role: "status" });
+  const url = h("input", { type: "url", size: 48, placeholder: "the page's https:// link", "aria-label": "Change request page",
+    value: st.settings.ncr_url || "" });
+  const loc = h("select", { "aria-label": "Location" }, h("option", { value: "", text: "Guess from the site's name" }),
+    ...NCR_LOCATIONS.map((l) => h("option", { value: l, text: l, selected: l === st.settings.ncr_location })));
+  const save = h("button", { class: "btn primary", type: "button", text: "Save", onclick: async () => {
+    save.disabled = true;
+    setText(msg, "");
+    try {
+      await post("/api/admin/settings", { ncr_url: url.value.trim(), ncr_location: loc.value }, "PUT");
+      store.meta.ncr = Boolean(url.value.trim());
+      setText(msg, url.value.trim() ? "Saved - Report a problem now opens that page with the ticket." : "Saved - no change request page: reports are only kept here.");
+    } catch (e) { setText(msg, e.message); }
+    save.disabled = false;
+  } });
+  const list = h("div", {});
+  async function load() {
+    let d;
+    try { d = await get("/api/admin/problem-reports"); } catch (e) { list.replaceChildren(h("p", { text: e.message })); return; }
+    if (!isAlive()) return;
+    list.replaceChildren(d.reports.length
+      ? h("div", { class: "table-scroll" }, h("table", { class: "comps fb" },
+        h("thead", {}, h("tr", {}, ...["Report", "Sent", "From", "Priority", "What's wrong", ""].map((t) => h("th", { text: t })))),
+        h("tbody", {}, d.reports.map((x) => h("tr", {},
+          h("td", { class: "num", text: x.id }),
+          h("td", { class: "muted", text: fmtWhen(x.t) }),
+          h("td", { text: x.by || "–" }),
+          h("td", { text: x.priority || "" }),
+          h("td", {}, h("div", { class: "fb-text", text: x.first || "" })),
+          h("td", {}, h("a", { class: "btn", href: `/api/admin/problem-reports/${encodeURIComponent(x.id)}`, text: "Download" })))))))
+      : h("p", { class: "muted", text: "None yet. Reports are kept for 30 days (at most 50)." }));
+  }
+  load();
+  return h("section", { class: "panel pad", id: "problem-panel" }, h("h2", { text: "Report a problem" }),
+    h("p", { class: "muted", text: "Anyone can press Report a problem. The full report is kept here, and the person gets a ticket for "
+      + "the Network Change Requests page: it opens filled in, with this dashboard's error log, and they press Submit there "
+      + "(signed in to Claude). Without a page here, reports are only kept below." }),
+    h("div", { class: "fields" },
+      h("label", { class: "field" }, h("span", { text: "Change request page (its link)" }), url),
+      h("label", { class: "field" }, h("span", { text: "Location on the ticket" }), loc)),
+    h("div", { class: "actions-row" }, save,
+      h("a", { class: "btn", href: "/api/admin/log", text: "Download the log",
+        title: "The server's log (the newest 4 MB, kept across restarts) - passwords and tokens masked" })),
+    msg, h("h3", { text: "Kept reports" }), list);
 }
 
 function fbRow(x, d, nav, reload) {

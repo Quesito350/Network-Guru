@@ -129,7 +129,8 @@ python run.py build-inventory ..\sites\devices.xlsx --site mendon --out ..\sites
 - **Mobius clients** (0.9.6): the Control Room tab and the Mobius Server's page list every client PC Mobius reports, with its CPU, memory, disk, frame rate and Mobius uptime (values from the Mobius map's `mobius_client` rows).
 - **Server speed** (0.9.6): **Admin → Server speed** shows how often the server was held up; ping and port times measured meanwhile are left out instead of raising latency alarms.
 - **Feedback** (header, 0.9.5): anyone sends a request, a problem or an idea - no sign-in, the name is optional. Admins see the list on **Admin → Feedback** and set each one's status (New, Planned, In progress, Done, Won't do) and a note; every change is in Events, and the morning report lists the new and open ones.
-- **Report a problem** (header): a signed-in admin downloads one zip with the version, status, the last 7 days of events, recent log lines, the inventory and any errors the page caught. Secrets are never in it. A red dot on the button means the page caught an error.
+- **Report a problem** (header, 0.10.0: anyone): say what's wrong and press Create ticket - the Network Change Requests page opens with a ticket filled in and the dashboard's error log attached; the person picks their team and submits it there. The full report (version, status, 7 days of events, log lines, the inventory, the page's errors - never secrets) stays on the server: Admin → Report a problem lists them, sets the page's link, and has **Download the log**. A red dot on the button means the page caught an error.
+- **Tower coverage** (0.10.0): Coverage m (and Antenna bearing / Beam width for a sector) on the Groups sheet; the map's Layers → Coverage shows each tower's planned range.
 
 ## Discovery scan: find devices on the network (0.9.0)
 

@@ -23,6 +23,7 @@ from .inventory import load_inventory
 from .model import Info
 from .pipeline import Pipeline
 from .positions import VehiclePositions
+from .problem_ticket import PER_HOUR as PROBLEMS_PER_HOUR, ReportStore
 from .rules import RuleSet, load_rules
 from .scheduler import Scheduler, sim_pollers
 from .sim.backfill import Progress, backfill
@@ -71,6 +72,7 @@ class Runtime:
         self.scheduler: Scheduler | None = None
         self.progress = Progress()
         logbuffer.install()                  # the last log lines, for the problem report
+        logbuffer.install_file(Path(settings.data_dir) / "logs")    # 0.10.0: kept across restarts (Admin → Download the log)
         logging.getLogger("httpx").setLevel(logging.WARNING)   # a line per request pushed everything else out
         self.notes: list[str] = []
         self.tasks: list[asyncio.Task] = []
@@ -85,6 +87,8 @@ class Runtime:
         self.mobius_clients = None            # live mode: every Mobius client PC (mobius_clients.py, 0.9.6)
         self.discovery = None                 # live mode: the discovery scan (found.py)
         self.feedback_limit = RateLimit()     # the Feedback button (feedback.py)
+        self.problem_limit = RateLimit(PROBLEMS_PER_HOUR)    # Report a problem, anyone (problem_ticket.py, 0.10.0)
+        self.problem_reports = ReportStore(settings.data_dir)
         self.can_ping = False
 
     @property

@@ -39,7 +39,8 @@ def test_meta_inventory_live(client):
 
 def test_history_endpoints(client):
     now = time.time()
-    charts = client.get("/api/history/charts/t48-gx", params={"from": now - 86400, "to": now}).json()
+    # t46: a trailer with a good battery - t48's worn one goes dark on long nights (few points at night)
+    charts = client.get("/api/history/charts/t46-gx", params={"from": now - 86400, "to": now}).json()
     kinds = {c["key"]: c["kind"] for c in charts}
     assert kinds["soc"] == "line" and kinds["mppt"] == "state" and kinds["yield"] == "daily"
     soc = next(c for c in charts if c["key"] == "soc")

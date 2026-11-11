@@ -1,5 +1,5 @@
-"""REST endpoints. Read-only apart from the simulator's fault injection and sending feedback; admin
-changes are in admin.py."""
+"""REST endpoints. Read-only apart from the simulator's fault injection, sending feedback and reporting a
+problem (0.10.0); admin changes are in admin.py."""
 
 from __future__ import annotations
 
@@ -9,8 +9,9 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from .. import TOOL_NAME, __version__
-from .. import feedback as fb
-from .admin import client_ip, same_origin
+from .. import feedback as fb, logbuffer, problem_report, problem_ticket as pt
+from ..auth import COOKIE
+from .admin import client_ip, same_origin, secret_list
 from ..catalog import catalog_json
 from ..changelog import as_json as changelog_json
 from ..maptiles import choice as maptile_choice, tiles_for
@@ -110,7 +111,8 @@ async def meta(request: Request):
             "enum_rules": r.rules.enum_rules_json(), "started": r.started,
             "hide_quiet": {"min": r.settings_state.get("hide_quiet_min", 60),
                            "tabs": r.settings_state.get("hide_quiet_tabs", [])},
-            "mobius_explore": r.mobius is not None}
+            "mobius_explore": r.mobius is not None,
+            "ncr": bool(r.settings_state.get("ncr_url"))}      # 0.10.0: Report a problem opens a change request
 
 
 @router.get("/mobius/summary")
@@ -284,6 +286,48 @@ async def send_feedback(request: Request, body: FeedbackIn):
     if not r.feedback_limit.allow(client_ip(request)):
         raise HTTPException(429, "That's a lot of feedback in one hour - please try again later.")
     return {"id": r.events.add_feedback(time.time(), kind, text, name, page)}
+
+
+class ProblemIn(BaseModel):
+    text: str = ""
+    priority: str = "Standard"
+    page: str = ""
+    browser: dict = {}
+
+
+@router.post("/problem")
+async def report_problem(request: Request, body: ProblemIn):
+    """Anyone viewing (0.10.0, problem_ticket.py): the full problem report is kept on this server and a
+    ticket comes back for the site's Network Change Requests page (Admin → Settings), with an error-log
+    excerpt. Same-origin only, rate limited per address."""
+    same_origin(request)
+    r = rt(request)
+    try:
+        text = pt.clean_text(body.text)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    priority = body.priority if body.priority in pt.PRIORITIES else "Standard"
+    page = str(body.page or "")[:200]
+    if not r.problem_limit.allow(client_ip(request)):
+        raise HTTPException(429, "That's a lot of problem reports in one hour - please try again later.")
+    now = time.time()
+    session = r.auth.session(request.cookies.get(COOKIE))
+    who = session.name if session else f"a viewer at {client_ip(request)}"
+    from zoneinfo import ZoneInfo
+    rid = pt.new_id(now, ZoneInfo(r.inv.site.timezone))
+    ring = logbuffer.install()
+    browser = body.browser if isinstance(body.browser, dict) else {}
+    name, data = problem_report.build(r, who, f"[{priority}] {text}", browser, secret_list(r), ring.text(), now=now)
+    first = text.splitlines()[0][:120]
+    r.problem_reports.save(rid, data, {"t": now, "by": who, "first": first, "priority": priority, "file": name})
+    if r.events is not None:
+        r.events.add_system_event(now, "problem", f"Problem reported ({rid}): {first}", 3, session.name if session else None)
+    url = str(r.settings_state.get("ncr_url") or "")
+    location = pt.location_for(str(r.settings_state.get("ncr_location") or ""), r.inv.site.name, r.inv.site.id)
+    log = pt.excerpt(r, rid, page, browser, ring.entries(), now)
+    ng = pt.encode(pt.ticket(r, rid, text, priority, page, location, log))
+    return {"id": rid, "ng": ng, "url": f"{url}#ng={ng}" if url else None, "location": location,
+            "log_chars": len(log), "admin": bool(session)}
 
 
 @router.post("/sim/fault")

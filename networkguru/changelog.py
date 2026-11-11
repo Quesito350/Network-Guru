@@ -7,6 +7,17 @@ networkguru.__version__ - release.py refuses to package otherwise).
 """
 
 CHANGES = [
+    ("0.10.0", "2026-11-10", [
+        "Report a problem is for everyone now. Say what's wrong and press Create ticket: the Network Change Requests "
+        "page opens in a new tab with a ticket filled in and this dashboard's error log attached - pick your team and "
+        "press Submit request there (signed in to Claude). The full report stays on this server for the admins.",
+        "Admin → Report a problem: the change request page's link and the ticket's location, the reports people sent "
+        "(each downloadable), and Download the log - the server's log, now kept across restarts and updates.",
+        "Tower coverage on the map: give a tower a range (and, for a sector antenna, a bearing and a beam width) in "
+        "devices.xlsx, and Layers → Coverage draws it - strong, fair and edge bands, one colour per tower, dashed grey "
+        "while the tower is down. It's the planned range, not a measurement.",
+        "Fixed: a test counted a simulated trailer whose worn battery goes dark on long nights.",
+    ]),
     ("0.9.9", "2026-11-10", [
         "The Overview has the site map under its three panels - the same pins, 60 GHz links, moving vehicles and "
         "Layers as the Map page; click a pin to open it.",

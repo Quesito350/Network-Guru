@@ -1,5 +1,6 @@
 """Admin endpoints: sign-in, update approval / upload, report settings and test sends, the
-problem report (Report a problem) and the feedback list (0.9.5).
+problem report (Report a problem) and the feedback list (0.9.5); the kept problem reports and the log
+download (0.10.0).
 
 Every change needs a signed-in admin (session cookie: HttpOnly, SameSite=Strict) AND the header
 X-Requested-With: networkguru, which a page on another site cannot send - with a same-origin
@@ -12,11 +13,12 @@ import time
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ..auth import COOKIE, HASH_ENV, MAX_AGE_S, Session
 from .. import feedback as fb, logbuffer, problem_report
-from ..config import secret
+from ..config import mask, secret
 from ..github import UpdateError
 from ..notify import GRAPH_ENV, SMTP_PASS_ENV, SMTP_USER_ENV, TEAMS_ENV
 from ..site_settings import validate
@@ -151,6 +153,37 @@ async def problem_report_zip(request: Request, body: ProblemIn, who: Session = D
     _event(request, "Problem report downloaded", 0, who.name)
     return Response(content=data, media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@router.get("/problem-reports")
+async def problem_reports(request: Request, who: Session = Depends(require_admin)):
+    """The reports Report a problem kept (0.10.0, problem_ticket.ReportStore), newest first."""
+    return {"reports": rt(request).problem_reports.list()}
+
+
+@router.get("/problem-reports/{rid}")
+async def problem_report_file(request: Request, rid: str, who: Session = Depends(require_admin)):
+    r = rt(request)
+    p = r.problem_reports.path(rid)
+    if p is None:
+        raise HTTPException(404, "No such report (they are kept for 30 days)")
+    _event(request, f"Problem report {rid} downloaded", 0, who.name)
+    return FileResponse(p, media_type="application/zip", filename=f"networkguru-report-{rid}.zip")
+
+
+@router.get("/log")
+async def download_log(request: Request, who: Session = Depends(require_admin)):
+    """The server's log (0.10.0): the newest 4 MB of data/logs/networkguru.log and the file before it,
+    secrets masked; the in-memory lines when the file can't be written."""
+    import datetime as dt
+    from pathlib import Path
+    from zoneinfo import ZoneInfo
+    r = rt(request)
+    text = logbuffer.file_text(Path(r.settings.data_dir) / "logs") or logbuffer.install().text()
+    stamp = dt.datetime.now(ZoneInfo(r.inv.site.timezone))
+    _event(request, "Log downloaded", 0, who.name)
+    return Response(content=(mask(text) or "(the log is empty)").encode("utf-8"), media_type="text/plain; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="networkguru-log-{r.inv.site.id}-{stamp:%Y%m%d-%H%M}.txt"'})
 
 
 # -- updates -------------------------------------------------------------------

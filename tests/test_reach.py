@@ -20,6 +20,19 @@ from networkguru.tsdb import MemoryTSDB
 from .conftest import EXAMPLE
 
 
+def _test_net_answers() -> bool:
+    """Some networks (a web filter or VPN client) accept every TCP connection, even to TEST-NET
+    192.0.2.1, which nothing may answer - then a "never answers" check can't be tested here."""
+    try:
+        with socket.create_connection(("192.0.2.1", 80), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+needs_dark_net = pytest.mark.skipif(_test_net_answers(), reason="this network answers for 192.0.2.1 (a proxy or VPN filter)")
+
+
 def inv_of(*devices, tab="infrastructure"):
     return parse_inventory({"site": {"id": "lab", "name": "Lab", "timezone": "America/Denver"},
                             tab: [{"id": "g", "name": "G", "kind": "tower", "devices": list(devices)}]})
@@ -67,6 +80,7 @@ def test_results_from_ping_and_ports():
     assert m["mobius_up"] == 0.0 and m["port_up{port=443}"] == 1.0 and m["tcp_ms{port=443}"] == 5.0   # its service
 
 
+@needs_dark_net
 def test_tcp_check_open_closed_and_timeout():
     async def flow():
         server = await asyncio.start_server(lambda r, w: w.close(), "127.0.0.1", 0)
@@ -106,6 +120,7 @@ def test_ping_here():
     assert asyncio.run(reach.ping("192.0.2.1", count=1)) == []            # TEST-NET never answers
 
 
+@needs_dark_net
 def test_live_pipeline_ok_then_offline(monkeypatch):
     """Real checks into the real pipeline: a device that answers is OK; one that never does goes
     Offline after 3 polls (Critical on the infrastructure tab)."""
