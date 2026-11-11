@@ -749,3 +749,7 @@ body.wall .toasts { top: 54px; }
 .map-cover .cover.down .b100 { stroke-dasharray: 6 5; stroke-opacity: 0.9; }
 .map-layers-panel .cover-all { display: flex; gap: 12px; margin: 2px 0 4px; }
 .map-layers-panel .cover-all .linkish { margin-top: 0; }
+
+/* 0.10.0: Report a problem - the steps to paste the ticket on the change request page */
+.modal ol.steps { margin: 6px 0 12px; padding-left: 22px; }
+.modal ol.steps li { margin: 5px 0; }

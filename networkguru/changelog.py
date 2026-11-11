@@ -8,9 +8,10 @@ networkguru.__version__ - release.py refuses to package otherwise).
 
 CHANGES = [
     ("0.10.0", "2026-11-10", [
-        "Report a problem is for everyone now. Say what's wrong and press Create ticket: the Network Change Requests "
-        "page opens in a new tab with a ticket filled in and this dashboard's error log attached - pick your team and "
-        "press Submit request there (signed in to Claude). The full report stays on this server for the admins.",
+        "Report a problem is for everyone now. Say what's wrong and press Create ticket, then Copy the ticket and open "
+        "the page: on the Network Change Requests page click Paste from Network Guru and press Ctrl+V - the form fills "
+        "in with this dashboard's error log attached. Pick your team and press Submit request (signed in to Claude). "
+        "The full report stays on this server for the admins.",
         "Admin → Report a problem: the change request page's link and the ticket's location, the reports people sent "
         "(each downloadable), and Download the log - the server's log, now kept across restarts and updates.",
         "Tower coverage on the map: give a tower a range (and, for a sector antenna, a bearing and a beam width) in "

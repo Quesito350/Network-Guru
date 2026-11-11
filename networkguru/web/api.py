@@ -326,7 +326,8 @@ async def report_problem(request: Request, body: ProblemIn):
     location = pt.location_for(str(r.settings_state.get("ncr_location") or ""), r.inv.site.name, r.inv.site.id)
     log = pt.excerpt(r, rid, page, browser, ring.entries(), now)
     ng = pt.encode(pt.ticket(r, rid, text, priority, page, location, log))
-    return {"id": rid, "ng": ng, "url": f"{url}#ng={ng}" if url else None, "location": location,
+    # the page's own link: claude.ai doesn't pass a # part on to the page, so the ticket goes by clipboard
+    return {"id": rid, "ng": ng, "url": url or None, "location": location,
             "log_chars": len(log), "admin": bool(session)}
 
 

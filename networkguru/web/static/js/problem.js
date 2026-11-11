@@ -1,9 +1,9 @@
 // "Report a problem": the page's own errors are caught here (the button gets a red dot).
 // 0.10.0: anyone can report a problem. The server keeps the full report (status, events, log lines and
 // these errors - never secrets) and hands back a ticket for the site's Network Change Requests page
-// (problem_ticket.py): that page opens in a new tab, filled in, with an error-log excerpt; the person
-// picks their team and presses Submit there. The same ticket is copied, for the page's "Paste from
-// Network Guru" box. An admin can also download the full zip.
+// (problem_ticket.py) with an error-log excerpt. One click copies it and opens that page; there the person
+// clicks "Paste from Network Guru", presses Ctrl+V, picks their team and presses Submit (claude.ai doesn't
+// hand a link's # part to the page, so the clipboard carries it). An admin can also download the full zip.
 
 import { errorText, post } from "./api.js";
 import { h, setText } from "./dom.js";
@@ -66,21 +66,23 @@ async function download(note) {
   return name;
 }
 
-// The clipboard API needs https; the dashboard is often plain http, so the old way (inside the click).
+// Copy inside the click. The old way first: it works on plain http too (the dashboard often is); the clipboard API
+// needs https and a focused page, and says so by rejecting. Resolves true only when the text was really copied.
 function copyText(text) {
+  let ok = false;
+  const back = document.activeElement;
   try {
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(text);
-      return true;
-    }
     const ta = h("textarea", { style: "position:fixed;left:-9999px;top:0", "aria-hidden": "true" });
     ta.value = text;
     document.body.append(ta);
     ta.select();
-    const ok = document.execCommand("copy");
+    ok = document.execCommand("copy");
     ta.remove();
-    return ok;
-  } catch { return false; }
+  } catch { ok = false; }
+  back?.focus?.();
+  if (ok) return Promise.resolve(true);
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text).then(() => true, () => false);
+  return Promise.resolve(false);
 }
 
 export async function openProblemReport() {
@@ -108,45 +110,46 @@ export async function openProblemReport() {
       text.focus();
       return;
     }
-    // open the tab inside the click, or the browser blocks it; it goes to the page once the ticket is ready
-    const tab = ncr ? window.open("", "_blank") : null;
     go.disabled = true;
     setText(msg, "Putting the report together…");
     let res;
     try {
       res = await post("/api/problem", { text: text.value, priority: prio.value, page: location.hash, browser: browserInfo() });
     } catch (e) {
-      tab?.close();
       setText(msg, e.message);
       go.disabled = false;
       return;
     }
-    const copied = res.ng ? copyText(`ng=${res.ng}`) : false;
-    let opened = false;
-    if (tab && res.url) {
-      try {
-        tab.opener = null;
-        tab.location.href = res.url;
-        opened = true;
-      } catch { /* the person closed it */ }
-    } else tab?.close();
-    done(res, copied, opened);
+    done(res);
   }
 
-  function done(res, copied, opened) {
+  // claude.ai doesn't hand a link's # part to the page, so the ticket goes over the clipboard: one click copies
+  // it and opens the page (both inside the click, so neither is blocked); there, Paste from Network Guru + Ctrl+V.
+  function done(res) {
     const kb = (res.log_chars / 1024).toFixed(1);
     const parts = [h("p", {}, "Report ", h("b", { text: res.id }), " is kept on this server for the admins.")];
     if (res.url) {
+      const note = h("p", { class: "form-msg", role: "status" });
+      const manual = h("textarea", { class: "wide hidden", rows: 3, readonly: true, "aria-label": "The ticket" });
+      manual.value = `ng=${res.ng}`;
+      const copied = (ok) => {
+        setText(note, ok ? "Copied - now paste it on the page (step 2)."
+          : "Copying didn't work in this browser - the ticket is selected below: press Ctrl+C, then paste it on the page.");
+        manual.classList.toggle("hidden", ok);
+        if (!ok) manual.select();
+      };
+      const open = h("a", { class: "btn primary", href: res.url, target: "_blank", rel: "noopener", text: "Copy the ticket and open the page",
+        onclick: () => copyText(manual.value).then(copied) });
       parts.push(
-        h("p", { text: (opened ? "The Network Change Requests page opened in a new tab" : "Open the Network Change Requests page:")
-          + ` the ticket is filled in, with this dashboard's error log attached (${kb} KB). Pick your team there and press Submit request.` }),
-        h("div", { class: "actions-row" },
-          h("a", { class: "btn primary", href: res.url, target: "_blank", rel: "noopener", text: opened ? "Open it again" : "Open the change request page" }),
-          h("button", { class: "btn", type: "button", text: "Copy the ticket", onclick: (e) => {
-            setText(e.target, copyText(`ng=${res.ng}`) ? "Copied" : "Copy didn't work");
-          } })),
-        h("p", { class: "muted small", text: (copied ? "The ticket is also copied. " : "")
-          + "If the page opens empty, use its 'Paste from Network Guru' box and paste (Ctrl+V). You need to be signed in to Claude." }));
+        h("p", { text: `The ticket is ready, with this dashboard's error log attached (${kb} KB).` }),
+        h("ol", { class: "steps" },
+          h("li", { text: "Copy the ticket and open the Network Change Requests page (button below)." }),
+          h("li", {}, "On that page, at the top of ", h("b", { text: "New request" }), ", click ", h("b", { text: "Paste from Network Guru" }),
+            " and press ", h("b", { text: "Ctrl+V" }), " - the form fills in."),
+          h("li", { text: "Pick your team and press Submit request (you need to be signed in to Claude)." })),
+        h("div", { class: "actions-row" }, open,
+          h("button", { class: "btn", type: "button", text: "Copy the ticket", onclick: () => copyText(manual.value).then(copied) })),
+        note, manual);
     } else {
       parts.push(h("p", { text: "This dashboard's admins see it under Admin → Problem reports. For it to become a network change "
         + "request, an admin sets the change request page under Admin → Settings." }));
@@ -158,8 +161,8 @@ export async function openProblemReport() {
 
   body.append(
     h("p", { text: ncr
-      ? "Tell Support what's wrong. This opens the Network Change Requests page with a ticket filled in and this "
-        + "dashboard's error log attached - pick your team there and press Submit request (signed in to Claude)."
+      ? "Tell Support what's wrong. This makes a ticket for the Network Change Requests page with this dashboard's "
+        + "error log attached: you paste it there, pick your team and press Submit request (signed in to Claude)."
       : "Tell the admins what's wrong. The report is kept on this server with this dashboard's error log." }),
     text,
     h("div", { class: "actions-row" }, h("label", {}, "Priority ", prio)),

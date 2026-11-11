@@ -2,12 +2,13 @@
 
 Anyone viewing the dashboard can report a problem. The server keeps the full problem report (the admin's
 zip, problem_report.py) under data/reports/, and hands back a ticket for the site's Network Change
-Requests page (a Claude page - Admin → Settings → Change request page): the page opens with the ticket
-in its link's #ng= part (base64url JSON, the contract below), filled in, with an error-log excerpt; the
-person picks their team and presses Submit there, signed in as themselves. Network Guru can't save a
-ticket by itself: the page's requests live in a Claude page's own database.
+Requests page (a Claude page - Admin → Settings → Change request page) with an error-log excerpt. The
+browser copies it (ng=<value>) and opens the page; there the person clicks "Paste from Network Guru",
+presses Ctrl+V, picks their team and presses Submit, signed in as themselves. Network Guru can't save a
+ticket by itself (the page's requests live in a Claude page's own database), and claude.ai doesn't hand a
+link's # part to the page - so the clipboard carries the ticket. The page also reads #ng= if that changes.
 
-    #ng= + base64url(UTF-8 JSON, no padding):
+    ng= + base64url(UTF-8 JSON, no padding):
     {"v": 1, "from": "network-guru", "title", "type": "Other", "site": NCR location, "priority",
      "description", "justification", "devices" (optional), "log" (<= EXCERPT_MAX, masked),
      "ngReport": "NG-YYMMDD-XXXX", "ngVersion", "ngSite"}
@@ -159,7 +160,14 @@ class ReportStore:
         self.dir.mkdir(parents=True, exist_ok=True)
         tmp = self.index_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(items, indent=1, ensure_ascii=False), encoding="utf-8", newline="\n")
-        tmp.replace(self.index_path)
+        for attempt in range(5):           # Windows: a virus scanner may hold the old index for a moment
+            try:
+                tmp.replace(self.index_path)
+                return
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
 
     def save(self, rid: str, data: bytes, meta: dict) -> None:
         self.dir.mkdir(parents=True, exist_ok=True)

@@ -189,7 +189,7 @@ function problemPanel(st, isAlive) {
     try {
       await post("/api/admin/settings", { ncr_url: url.value.trim(), ncr_location: loc.value }, "PUT");
       store.meta.ncr = Boolean(url.value.trim());
-      setText(msg, url.value.trim() ? "Saved - Report a problem now opens that page with the ticket." : "Saved - no change request page: reports are only kept here.");
+      setText(msg, url.value.trim() ? "Saved - Report a problem now makes a ticket for that page." : "Saved - no change request page: reports are only kept here.");
     } catch (e) { setText(msg, e.message); }
     save.disabled = false;
   } });
@@ -213,8 +213,9 @@ function problemPanel(st, isAlive) {
   load();
   return h("section", { class: "panel pad", id: "problem-panel" }, h("h2", { text: "Report a problem" }),
     h("p", { class: "muted", text: "Anyone can press Report a problem. The full report is kept here, and the person gets a ticket for "
-      + "the Network Change Requests page: it opens filled in, with this dashboard's error log, and they press Submit there "
-      + "(signed in to Claude). Without a page here, reports are only kept below." }),
+      + "the Network Change Requests page with this dashboard's error log: one click copies it and opens the page, where they "
+      + "click Paste from Network Guru, press Ctrl+V and Submit (signed in to Claude). Without a page here, reports are only "
+      + "kept below." }),
     h("div", { class: "fields" },
       h("label", { class: "field" }, h("span", { text: "Change request page (its link)" }), url),
       h("label", { class: "field" }, h("span", { text: "Location on the ticket" }), loc)),

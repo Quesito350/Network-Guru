@@ -72,7 +72,7 @@ def test_anyone_reports_a_problem_and_gets_a_ticket(client):
     r = client.post("/api/problem", json=body, headers=HDR)
     assert r.status_code == 200, r.text
     d = r.json()
-    assert pt.ID_RE.match(d["id"]) and d["url"] == f"{NCR}#ng={d['ng']}" and d["location"] == "Logan"
+    assert pt.ID_RE.match(d["id"]) and d["url"] == NCR and d["location"] == "Logan"      # no # part: the clipboard
     t = pt.decode(d["ng"])
     assert (t["v"], t["from"], t["type"], t["site"], t["priority"], t["ngReport"]) == (1, "network-guru", "Other", "Logan", "Urgent", d["id"])
     assert t["title"].endswith(": The trailer radio is down") and t["devices"]
@@ -80,7 +80,7 @@ def test_anyone_reports_a_problem_and_gets_a_ticket(client):
     log = t["log"]
     assert len(log) <= pt.EXCERPT_MAX and "TypeError: x is undefined" in log and "reader failed" in log
     assert "tok-NCR-secret" not in log and "tok-NCR-secret" not in d["ng"]          # masked
-    assert len(d["ng"]) < 16_000                                                     # a link a browser takes
+    assert len(d["ng"]) < 16_000                                                     # a paste the page takes
     assert client.post("/api/problem", json={"text": "  "}, headers=HDR).status_code == 400
     ev = client.get("/api/events", params={"from": time.time() - 60, "system": "true", "kinds": "group"}).json()
     assert any(e.get("sys_kind") == "problem" and d["id"] in e["reason"] for e in ev)
