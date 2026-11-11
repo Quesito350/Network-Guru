@@ -1,6 +1,6 @@
 // "Report a problem": the page's own errors are caught here (the button gets a red dot).
 // 0.10.0: anyone can report a problem. The server keeps the full report (status, events, log lines and
-// these errors - never secrets) and hands back a ticket for the site's Network Change Requests page
+// these errors - never secrets) and hands back a ticket for the site's Support and Test Tickets page
 // (problem_ticket.py) with an error-log excerpt. One click copies it and opens that page; there the person
 // clicks "Paste from Network Guru", presses Ctrl+V, picks their team and presses Submit (claude.ai doesn't
 // hand a link's # part to the page, so the clipboard carries it). An admin can also download the full zip.
@@ -37,7 +37,7 @@ export function onErrors(fn) { listeners.add(fn); fn(caught.length); return () =
 
 export function errorButton() {
   const marker = h("span", { class: "err-dot hidden", title: "This page caught an error" });
-  const plain = "Tell Support something is wrong - it becomes a network change request with this dashboard's error log";
+  const plain = "Tell Support something is wrong - it becomes a ticket with this dashboard's error log";
   const btn = h("button", { class: "hbtn report", type: "button", title: plain, onclick: openProblemReport }, "Report a problem", marker);
   onErrors((n) => {
     marker.classList.toggle("hidden", !n);
@@ -143,7 +143,7 @@ export async function openProblemReport() {
       parts.push(
         h("p", { text: `The ticket is ready, with this dashboard's error log attached (${kb} KB).` }),
         h("ol", { class: "steps" },
-          h("li", { text: "Copy the ticket and open the Network Change Requests page (button below)." }),
+          h("li", { text: "Copy the ticket and open the Support and Test Tickets page (button below)." }),
           h("li", {}, "On that page, at the top of ", h("b", { text: "New request" }), ", click ", h("b", { text: "Paste from Network Guru" }),
             " and press ", h("b", { text: "Ctrl+V" }), " - the form fills in."),
           h("li", { text: "Pick your team and press Submit request (you need to be signed in to Claude)." })),
@@ -151,8 +151,8 @@ export async function openProblemReport() {
           h("button", { class: "btn", type: "button", text: "Copy the ticket", onclick: () => copyText(manual.value).then(copied) })),
         note, manual);
     } else {
-      parts.push(h("p", { text: "This dashboard's admins see it under Admin → Problem reports. For it to become a network change "
-        + "request, an admin sets the change request page under Admin → Settings." }));
+      parts.push(h("p", { text: "This dashboard's admins see it under Admin → Report a problem. For it to become a ticket, an admin "
+        + "sets the ticket page there." }));
     }
     parts.push(h("div", { class: "actions-row" }, zip, h("button", { class: "btn", type: "button", text: "Close", onclick: () => close() })));
     body.replaceChildren(...parts);
@@ -161,7 +161,7 @@ export async function openProblemReport() {
 
   body.append(
     h("p", { text: ncr
-      ? "Tell Support what's wrong. This makes a ticket for the Network Change Requests page with this dashboard's "
+      ? "Tell Support what's wrong. This makes a ticket for the Support and Test Tickets page with this dashboard's "
         + "error log attached: you paste it there, pick your team and press Submit request (signed in to Claude)."
       : "Tell the admins what's wrong. The report is kept on this server with this dashboard's error log." }),
     text,

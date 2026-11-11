@@ -179,7 +179,7 @@ const NCR_LOCATIONS = ["Mendon", "Tremonton", "Logan", "Dallas/Fort Worth", "Den
 
 function problemPanel(st, isAlive) {
   const msg = h("div", { class: "form-msg", role: "status" });
-  const url = h("input", { type: "url", size: 48, placeholder: "the page's https:// link", "aria-label": "Change request page",
+  const url = h("input", { type: "url", size: 48, placeholder: "the page's https:// link", "aria-label": "Ticket page",
     value: st.settings.ncr_url || "" });
   const loc = h("select", { "aria-label": "Location" }, h("option", { value: "", text: "Guess from the site's name" }),
     ...NCR_LOCATIONS.map((l) => h("option", { value: l, text: l, selected: l === st.settings.ncr_location })));
@@ -189,7 +189,7 @@ function problemPanel(st, isAlive) {
     try {
       await post("/api/admin/settings", { ncr_url: url.value.trim(), ncr_location: loc.value }, "PUT");
       store.meta.ncr = Boolean(url.value.trim());
-      setText(msg, url.value.trim() ? "Saved - Report a problem now makes a ticket for that page." : "Saved - no change request page: reports are only kept here.");
+      setText(msg, url.value.trim() ? "Saved - Report a problem now makes a ticket for that page." : "Saved - no ticket page: reports are only kept here.");
     } catch (e) { setText(msg, e.message); }
     save.disabled = false;
   } });
@@ -213,11 +213,11 @@ function problemPanel(st, isAlive) {
   load();
   return h("section", { class: "panel pad", id: "problem-panel" }, h("h2", { text: "Report a problem" }),
     h("p", { class: "muted", text: "Anyone can press Report a problem. The full report is kept here, and the person gets a ticket for "
-      + "the Network Change Requests page with this dashboard's error log: one click copies it and opens the page, where they "
+      + "the Support and Test Tickets page with this dashboard's error log: one click copies it and opens the page, where they "
       + "click Paste from Network Guru, press Ctrl+V and Submit (signed in to Claude). Without a page here, reports are only "
       + "kept below." }),
     h("div", { class: "fields" },
-      h("label", { class: "field" }, h("span", { text: "Change request page (its link)" }), url),
+      h("label", { class: "field" }, h("span", { text: "Ticket page - Support and Test Tickets (its link)" }), url),
       h("label", { class: "field" }, h("span", { text: "Location on the ticket" }), loc)),
     h("div", { class: "actions-row" }, save,
       h("a", { class: "btn", href: "/api/admin/log", text: "Download the log",

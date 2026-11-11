@@ -33,7 +33,7 @@ DEFAULTS: dict[str, Any] = {
     "hide_quiet_tabs": ["vehicles", "control", "infrastructure"],
     "discovery_time": "02:00",       # the nightly network scan, site time ("" = no nightly scan)
     "discovery_ranges": [],          # networks the scan covers on top of the inventory's own (Admin page)
-    "ncr_url": "",                   # 0.10.0: the Network Change Requests page Report a problem opens (problem_ticket.py)
+    "ncr_url": "",                   # 0.10.0: the Support and Test Tickets page Report a problem opens (problem_ticket.py)
     "ncr_location": "",              # its Location for this site ("" = guessed from the site's name)
 }
 HIDE_TABS = ("vehicles", "control", "infrastructure")
@@ -122,7 +122,7 @@ def validate(patch: dict[str, Any]) -> dict[str, Any]:
         elif key == "ncr_url":
             v = str(value or "").strip()
             if v and (not re.match(r"^https://[^\s<>\"#]+$", v) or len(v) > 300):
-                raise ValueError("ncr_url: the change request page's https:// link (without a # part)")
+                raise ValueError("ncr_url: the ticket page's https:// link (without a # part)")
             out[key] = v
         elif key == "ncr_location":
             from .problem_ticket import NCR_LOCATIONS

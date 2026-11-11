@@ -1,8 +1,8 @@
-"""Report a problem → a network change request (0.10.0).
+"""Report a problem → a ticket on the Support and Test Tickets page (0.10.0; the page was renamed in 0.10.1).
 
 Anyone viewing the dashboard can report a problem. The server keeps the full problem report (the admin's
-zip, problem_report.py) under data/reports/, and hands back a ticket for the site's Network Change
-Requests page (a Claude page - Admin → Settings → Change request page) with an error-log excerpt. The
+zip, problem_report.py) under data/reports/, and hands back a ticket for the site's Support and Test
+Tickets page (a Claude page - Admin → Report a problem → Ticket page) with an error-log excerpt. The
 browser copies it (ng=<value>) and opens the page; there the person clicks "Paste from Network Guru",
 presses Ctrl+V, picks their team and presses Submit, signed in as themselves. Network Guru can't save a
 ticket by itself (the page's requests live in a Claude page's own database), and claude.ai doesn't hand a

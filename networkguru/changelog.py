@@ -7,6 +7,10 @@ networkguru.__version__ - release.py refuses to package otherwise).
 """
 
 CHANGES = [
+    ("0.10.1", "2026-11-10", [
+        "Report a problem now names the page its tickets go to by its new name, Support and Test Tickets. A ticket "
+        "pasted there opens as a Network problem: it goes straight to Support, no approval step.",
+    ]),
     ("0.10.0", "2026-11-10", [
         "Report a problem is for everyone now. Say what's wrong and press Create ticket, then Copy the ticket and open "
         "the page: on the Network Change Requests page click Paste from Network Guru and press Ctrl+V - the form fills "

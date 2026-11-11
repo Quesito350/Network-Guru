@@ -112,7 +112,7 @@ async def meta(request: Request):
             "hide_quiet": {"min": r.settings_state.get("hide_quiet_min", 60),
                            "tabs": r.settings_state.get("hide_quiet_tabs", [])},
             "mobius_explore": r.mobius is not None,
-            "ncr": bool(r.settings_state.get("ncr_url"))}      # 0.10.0: Report a problem opens a change request
+            "ncr": bool(r.settings_state.get("ncr_url"))}      # 0.10.0: Report a problem makes a ticket for that page
 
 
 @router.get("/mobius/summary")
@@ -298,7 +298,7 @@ class ProblemIn(BaseModel):
 @router.post("/problem")
 async def report_problem(request: Request, body: ProblemIn):
     """Anyone viewing (0.10.0, problem_ticket.py): the full problem report is kept on this server and a
-    ticket comes back for the site's Network Change Requests page (Admin → Settings), with an error-log
+    ticket comes back for the site's Support and Test Tickets page (Admin → Report a problem), with an error-log
     excerpt. Same-origin only, rate limited per address."""
     same_origin(request)
     r = rt(request)
