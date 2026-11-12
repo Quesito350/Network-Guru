@@ -257,6 +257,21 @@ class FakeInflux:
         if win:
             pts = [p for p in pts if p[0] > time.time() - int(win.group(1)) * UNIT_S[win.group(2)]]
         lim = re.search(r"LIMIT (\d+)", q)
+        if q.startswith("SELECT mean(") and meas:               # 0.11.0: a history chart - tag filters, time buckets
+            field = re.match(r'SELECT mean\("([^"]+)"\)', q).group(1)
+            where = q.split(" WHERE ", 1)[1] if " WHERE " in q else ""
+            conds = [(k, v.replace("\\'", "'").replace("\\\\", "\\"))
+                     for k, v in re.findall(r'"([^"]+)" = \'((?:[^\'\\\\]|\\\\.)*)\'', where)]
+            b = re.search(r"GROUP BY time\((\d+)([smhd])\)", q)
+            size = int(b.group(1)) * UNIT_S[b.group(2)] if b else 60
+            buckets: dict = {}
+            for t, tags, vals in pts:
+                if all(str(tags.get(k)) == v for k, v in conds) and isinstance(vals.get(field), (int, float)):
+                    buckets.setdefault(int(t // size * size), []).append(vals[field])
+            if not buckets:
+                return []
+            return [{"name": m.group(1), "columns": ["time", "mean"],
+                     "values": [[bt, sum(v) / len(v)] for bt, v in sorted(buckets.items())]}]
         if q.startswith("SELECT *") and meas:                   # the explorer: GROUP BY * ... LIMIT n
             fields = list(meas["fields"])
             series: dict = {}

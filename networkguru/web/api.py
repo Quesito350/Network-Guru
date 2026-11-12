@@ -148,6 +148,53 @@ async def mobius_group(request: Request, group_id: str):
     return r.mobius.group(group_id) if r.mobius else {"enabled": False}
 
 
+@router.get("/snmp/{comp_id}/all")
+async def snmp_all(request: Request, comp_id: str):
+    """A device's All SNMP values (0.11.0, drivers/snmp_walk.py): the latest read - none, running, done or error."""
+    r = rt(request)
+    if comp_id not in r.inv.comps:
+        raise HTTPException(404, "unknown device")
+    return r.snmp_walks.get(comp_id)
+
+
+@router.post("/snmp/{comp_id}/all")
+async def snmp_all_read(request: Request, comp_id: str):
+    """Read every value of a Rajant, Tachyon or switch (live mode). Anyone viewing, same origin; one read at a
+    time on the server, an address at most every 30 s; a read is shown for 5 minutes before it is repeated."""
+    same_origin(request)
+    r = rt(request)
+    comp = r.inv.comps.get(comp_id)
+    if comp is None:
+        raise HTTPException(404, "unknown device")
+    from ..drivers.snmp_walk import TYPES
+    if comp.type not in TYPES:
+        raise HTTPException(400, "Only Rajants, Tachyons and switches are read in full (a cell modem's SIM numbers never are).")
+    if r.mode != "live" or not comp.host:
+        raise HTTPException(409, "Devices are only read in live mode, and this one needs an address.")
+    try:
+        return r.snmp_walks.start(comp, client_ip(request))
+    except ValueError as e:
+        raise HTTPException(429, str(e)) from None
+
+
+@router.get("/mobius/{group_id}/history")
+async def mobius_history(request: Request, group_id: str, m: str = Query(..., max_length=300),
+                         f: str = Query(..., max_length=500), span: str = "6h"):
+    """One Mobius value's history for its chart (0.11.0): only a value the explorer has seen for this group."""
+    r = rt(request)
+    if group_id not in r.inv.groups or r.mobius is None:
+        raise HTTPException(404, "unknown group, or no Mobius explorer here")
+    from ..drivers.influx import InfluxError
+    try:
+        return await r.mobius.history(group_id, m, f, span)
+    except KeyError:
+        raise HTTPException(404, "Mobius has no such value for this") from None
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    except InfluxError as e:
+        raise HTTPException(502, f"Mobius InfluxDB: {e}") from None
+
+
 @router.get("/changelog")
 async def changelog():
     return changelog_json()

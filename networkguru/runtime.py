@@ -89,6 +89,8 @@ class Runtime:
         self.feedback_limit = RateLimit()     # the Feedback button (feedback.py)
         self.problem_limit = RateLimit(PROBLEMS_PER_HOUR)    # Report a problem, anyone (problem_ticket.py, 0.10.0)
         self.problem_reports = ReportStore(settings.data_dir)
+        from .drivers.snmp_walk import SnmpWalks
+        self.snmp_walks = SnmpWalks()         # a device page's All SNMP values (0.11.0)
         self.can_ping = False
 
     @property

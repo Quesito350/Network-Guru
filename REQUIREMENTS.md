@@ -44,6 +44,8 @@
 | R38 | Everything the Mobius InfluxDB has for a vehicle, location or client desk is visible on its page without a mapping, and what Mobius knows that is not in the inventory is listed | 0.8.0 |
 | R39 | The status tiles (Critical, Warning, OK, Offline, Unknown) filter the cards; Live leaves out what has gone quiet (no answer for an hour, admin-set) with a switch to show it, while History, alerts and the report keep it | 0.8.0 |
 | R41 | Anyone viewing can send feedback (a request, a problem or an idea) without signing in; admins track each one (status and a note), every change is logged, and the morning report lists the new and open ones; a pasted secret is never kept | 0.9.5 |
+| R49 | Every SNMP value a Rajant, Tachyon or switch offers can be read on demand and filtered on its page (never a cell modem's SIM numbers) | 0.11.0 |
+| R50 | Every value Mobius has for a vehicle is on its page with its age, filterable, downloadable, and any number can be charted from the Mobius InfluxDB | 0.11.0 |
 | R47 | Anyone can report a problem; it becomes a ticket on the Network Change Requests page with the dashboard's error log attached (secrets masked), and the full report stays on the server for the admins; admins can download the server's log | 0.10.0 (the page's side with Casey's OK) |
 | R48 | Each tower's planned coverage (range, and a sector's bearing and width, from devices.xlsx) can be shown on the map per tower | 0.10.0 |
 | R45 | Every vehicle Mobius knows is a vehicle of the dashboard by itself (card, map pin, Mobius values, what Mobius says it is, its IP pinged) without a devices.xlsx row; one devices.xlsx has is linked by name or IP, never doubled; the Mobius simulator's vehicles are left out | 0.9.7 (test PC run pending) |

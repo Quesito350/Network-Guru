@@ -753,3 +753,18 @@ body.wall .toasts { top: 54px; }
 /* 0.10.0: Report a problem - the steps to paste the ticket on the change request page */
 .modal ol.steps { margin: 6px 0 12px; padding-left: 22px; }
 .modal ol.steps li { margin: 5px 0; }
+
+/* ---------- 0.11.0: all Mobius values (charts on click) and all SNMP values ---------- */
+.mob-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
+.mob-tools .mob-search { flex: 1 1 220px; max-width: 360px; }
+.mob-count { margin: 2px 0 6px; }
+.mob-val { border: 0; background: none; padding: 0; color: var(--link); cursor: pointer; font: inherit; }
+.mob-val:hover b, .mob-val[aria-expanded="true"] b { text-decoration: underline; }
+.mob-chart-row td { padding: 4px 0 10px; }
+.mob-chart { border: 1px solid var(--hair); border-radius: 8px; padding: 8px 10px; background: var(--card-2); }
+.mob-chart-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.mob-chart-head b { font-size: 12px; }
+.mob-spark svg { width: 100%; height: 110px; display: block; }
+.mob-spark-labels { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.snmp-table td.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; white-space: nowrap; }
+.snmp-table td:nth-child(2) { overflow-wrap: anywhere; }

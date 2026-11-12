@@ -11,6 +11,7 @@ import { battery } from "../widgets/small.js";
 import { chartsSection, compTable, detailHeader, eventsSection, TAB_TITLE, vehicleHops } from "./common.js";
 import { clientsPanel } from "./clients.js";
 import { mobiusEverything, mobiusPanel } from "./mobius.js";
+import { snmpAllPanel } from "./snmpall.js";
 
 function groupFacts(g) {
   return () => {
@@ -234,7 +235,8 @@ export function componentView(root, cid, nav) {
   const now = h("div", { class: "panel table-scroll", style: "padding:6px 14px" });
   const charts = chartsSection([{ comp: cid, label: "" }], { primary: false, title: "Charts" });
   const ev = eventsSection(cid, nav);
-  mount(root, [head, h("section", { class: "section" }, h("h2", { text: "Current readings" }), now), charts.el, ev.el,
+  const snmpAll = snmpAllPanel(c);                  // 0.11.0: every SNMP value, on demand
+  mount(root, [head, h("section", { class: "section" }, h("h2", { text: "Current readings" }), now), snmpAll?.el, charts.el, ev.el,
     simTools(cid, c.name, Boolean(c.link))]);
   function update() {
     head.update();
@@ -248,5 +250,6 @@ export function componentView(root, cid, nav) {
   charts.start();
   head.history();
   ev.load();
-  return { update, destroy() { charts.destroy(); } };
+  snmpAll?.start();
+  return { update, destroy() { charts.destroy(); snmpAll?.destroy(); } };
 }

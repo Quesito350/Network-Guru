@@ -4,5 +4,5 @@ Mobius Server <-> Mobius Clients <-> vehicles, plus the infrastructure in betwee
 (Rajant, Celona, Starlink, Tachyon, Ubiquiti) and the trailers' solar + battery.
 """
 
-__version__ = "0.10.1"
+__version__ = "0.11.0"
 TOOL_NAME = "Network Guru"

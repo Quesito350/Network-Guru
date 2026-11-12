@@ -7,6 +7,16 @@ networkguru.__version__ - release.py refuses to package otherwise).
 """
 
 CHANGES = [
+    ("0.11.0", "2026-11-12", [
+        "All of a vehicle's Mobius telemetry: its page's Mobius data now lists every table Mobius has (not the first "
+        "60), and each value stays with its age after the vehicle parks (kept for a week). Fresh (10 min) or "
+        "Everything kept, the filter, a count and Download CSV - and a click on a number charts its last hour, "
+        "6 h, day or week straight from the Mobius InfluxDB.",
+        "All SNMP values: a Rajant's, Tachyon's or switch's page has Read all values - everything the device offers "
+        "(system, interfaces, PoE, sensors, hardware and the vendor's own values), named where the dashboard knows "
+        "the name, with a filter, sections and Download CSV. It reads once when you ask, not on every check. A cell "
+        "modem is never read in full (its SIM numbers stay unread), and anything that looks like one is hidden.",
+    ]),
     ("0.10.1", "2026-11-10", [
         "Report a problem now names the page its tickets go to by its new name, Support and Test Tickets. A ticket "
         "pasted there opens as a Network problem: it goes straight to Support, no approval step.",
